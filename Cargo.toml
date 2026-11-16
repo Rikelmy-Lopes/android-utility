@@ -1,0 +1,18 @@
+[package]
+name = "android-utility"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "Inspect and analyze Android devices through Android Debug Bridge (ADB)"
+license = "MIT"
+
+[dependencies]
+android-utility-core = { path = "core" }
+apk-info = "1.1"
+eframe = "0.37"
+serde_json = "1"
+
+[workspace]
+members = ["core"]
+default-members = [".", "core"]
+resolver = "3"
