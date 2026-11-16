@@ -20,6 +20,7 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Uninstall fallback to current-user removal when full uninstall fails.
 - [x] Warning that removing a system application may brick the device.
 - [x] Application names loaded on demand; the default listing shows package names only.
+- [x] Per-row action to resolve a single application name without loading all of them.
 - [x] English translation loading from `locales/en.json`.
 - [x] Per-user cache directory under `%LOCALAPPDATA%` on Windows and `$XDG_DATA_HOME`/`$HOME/.local/share` on Linux.
 - [x] Virtualized application list with fixed-height rows to keep window resizing responsive.

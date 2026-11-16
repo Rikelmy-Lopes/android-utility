@@ -39,6 +39,8 @@ pub enum AppsAction {
     Uninstall(PackageName),
     /// Read application names for the listed packages.
     LoadNames,
+    /// Read the application name for one package.
+    LoadName(PackageName),
 }
 
 /// Renders the application list and returns the requested action.
@@ -119,6 +121,21 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
                                     .monospace(),
                             );
                         });
+
+                        if app.label.is_none() && app.apk_path.is_some() {
+                            let load = egui::Button::new(
+                                egui::RichText::new(translations.get("apps.load_name")).small(),
+                            )
+                            .min_size(egui::vec2(86.0, 24.0));
+
+                            if ui
+                                .add_enabled(!state.loading_labels, load)
+                                .on_hover_text(translations.get("apps.load_name_tooltip"))
+                                .clicked()
+                            {
+                                action = Some(AppsAction::LoadName(app.package.clone()));
+                            }
+                        }
 
                         if app.is_system {
                             ui.label(

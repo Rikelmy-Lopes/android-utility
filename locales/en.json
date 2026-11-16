@@ -23,6 +23,8 @@
   "apps.uninstall": "Uninstall",
   "apps.load_names": "Load names",
   "apps.load_names_tooltip": "Reads every APK from the device to resolve application names. This can take a long time.",
+  "apps.load_name": "Load name",
+  "apps.load_name_tooltip": "Reads this application's APK to resolve its name. Slower than the package name but affects one app only.",
   "apps.loading_names": "Loading application names…",
 
   "status.ready": "Ready",

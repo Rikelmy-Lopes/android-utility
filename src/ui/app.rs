@@ -217,6 +217,38 @@ impl AndroidUtilityApp {
         ));
     }
 
+    fn load_label(&mut self, package: PackageName) {
+        if self.labels.contains_key(package.as_str()) {
+            return;
+        }
+
+        let Some(serial) = self.selected_serial().map(str::to_owned) else {
+            return;
+        };
+
+        let Some(target) = self
+            .apps
+            .iter()
+            .find(|app| app.package == package)
+            .and_then(|app| {
+                app.apk_path.as_ref().map(|path| LabelTarget {
+                    package: package.clone(),
+                    apk_path: path.clone(),
+                })
+            })
+        else {
+            return;
+        };
+
+        self.receivers.push(commands::spawn(
+            self.service.clone(),
+            Command::LoadLabels {
+                serial,
+                targets: vec![target],
+            },
+        ));
+    }
+
     fn start_operation(&mut self, kind: OperationKind, package: PackageName) {
         let Some(serial) = self.selected_serial().map(str::to_owned) else {
             self.set_error(self.translations.get("error.no_device_selected").to_owned());
@@ -270,6 +302,9 @@ impl AndroidUtilityApp {
             }
             AppsAction::LoadNames => {
                 self.load_missing_labels();
+            }
+            AppsAction::LoadName(package) => {
+                self.load_label(package);
             }
         }
     }
