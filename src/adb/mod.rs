@@ -13,14 +13,14 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use android_utility_core::{InstalledApp, PackageName, sort_apps};
+use android_utility_core::{InstalledApp, PackageName, ProcessUsage, sort_apps};
 
 pub use error::AdbError;
 pub use process::ProcessOutput;
 
 use parse::{
     merge_package_paths, parse_devices, parse_package_entries, parse_package_names,
-    permission_denied, pm_failure, uninstall_succeeded,
+    parse_top_processes, permission_denied, pm_failure, uninstall_succeeded,
 };
 
 /// ADB operations required by application commands.
@@ -33,6 +33,9 @@ pub trait DeviceService: Send + Sync {
 
     /// Lists installed packages with system and disabled state.
     fn list_apps(&self, serial: &str) -> Result<Vec<InstalledApp>, AdbError>;
+
+    /// Reads the current process table with CPU and resident memory usage.
+    fn processes(&self, serial: &str) -> Result<Vec<ProcessUsage>, AdbError>;
 
     /// Reads the application label from the APK at `apk_path`.
     fn application_label(&self, serial: &str, apk_path: &str) -> Result<Option<String>, AdbError>;
@@ -223,6 +226,36 @@ impl DeviceService for Adb {
 
         sort_apps(&mut apps);
         Ok(apps)
+    }
+
+    fn processes(&self, serial: &str) -> Result<Vec<ProcessUsage>, AdbError> {
+        let output = self.shell(
+            serial,
+            &[
+                "top",
+                "-b",
+                "-n",
+                "1",
+                "-o",
+                "PID,%CPU,RES,TIME+,ARGS",
+                "-s",
+                "2",
+            ],
+        )?;
+
+        if !output.succeeded() {
+            return Err(AdbError::command_failed(output.diagnostics()));
+        }
+
+        let processes = parse_top_processes(&output.stdout);
+
+        if processes.is_empty() {
+            return Err(AdbError::command_failed(
+                "top output did not contain a process table",
+            ));
+        }
+
+        Ok(processes)
     }
 
     fn application_label(&self, serial: &str, apk_path: &str) -> Result<Option<String>, AdbError> {

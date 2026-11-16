@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::sync::mpsc;
 
-use android_utility_core::{InstalledApp, PackageName};
+use android_utility_core::{InstalledApp, PackageName, ProcessUsage};
 
 use crate::adb::{AdbError, Device, DeviceService};
 
@@ -23,6 +23,11 @@ pub enum Command {
     LoadDevices,
     /// Loads installed packages from one device.
     LoadApps {
+        /// Device serial.
+        serial: String,
+    },
+    /// Reads the current process table from one device.
+    LoadProcesses {
         /// Device serial.
         serial: String,
     },
@@ -81,6 +86,13 @@ pub enum CommandEvent {
         /// Loaded packages or failure.
         result: Result<Vec<InstalledApp>, AdbError>,
     },
+    /// Process table result.
+    Processes {
+        /// Device serial the listing belongs to.
+        serial: String,
+        /// Loaded processes or failure.
+        result: Result<Vec<ProcessUsage>, AdbError>,
+    },
     /// A resolved application label.
     Label {
         /// Device serial the label belongs to.
@@ -126,6 +138,10 @@ pub fn execute(service: &dyn DeviceService, command: Command, emit: &mut dyn FnM
         Command::LoadApps { serial } => {
             let result = service.list_apps(&serial);
             emit(CommandEvent::Apps { serial, result });
+        }
+        Command::LoadProcesses { serial } => {
+            let result = service.processes(&serial);
+            emit(CommandEvent::Processes { serial, result });
         }
         Command::LoadLabels { serial, targets } => {
             for target in targets {
@@ -187,6 +203,7 @@ mod tests {
     struct FakeService {
         devices: Result<Vec<Device>, AdbError>,
         apps: Result<Vec<InstalledApp>, AdbError>,
+        processes: Result<Vec<ProcessUsage>, AdbError>,
         label: Result<Option<String>, AdbError>,
         disable: Result<(), AdbError>,
         enable: Result<(), AdbError>,
@@ -199,6 +216,7 @@ mod tests {
             Self {
                 devices: Ok(Vec::new()),
                 apps: Ok(Vec::new()),
+                processes: Ok(Vec::new()),
                 label: Ok(None),
                 disable: Ok(()),
                 enable: Ok(()),
@@ -227,6 +245,14 @@ mod tests {
             self.record(format!("list_apps({serial})"));
             match &self.apps {
                 Ok(apps) => Ok(apps.clone()),
+                Err(error) => Err(error.clone()),
+            }
+        }
+
+        fn processes(&self, serial: &str) -> Result<Vec<ProcessUsage>, AdbError> {
+            self.record(format!("processes({serial})"));
+            match &self.processes {
+                Ok(processes) => Ok(processes.clone()),
                 Err(error) => Err(error.clone()),
             }
         }
@@ -305,6 +331,39 @@ mod tests {
             &events[0],
             CommandEvent::Devices(Ok(devices)) if devices.len() == 1
         ));
+    }
+
+    #[test]
+    fn forwards_process_listing() {
+        let service = FakeService {
+            processes: Ok(vec![ProcessUsage {
+                pid: 42,
+                cpu_percent: 12.5,
+                memory_bytes: 1024,
+                cpu_time: "00:00.01".to_owned(),
+                command: "com.example".to_owned(),
+            }]),
+            ..Default::default()
+        };
+
+        let events = collect(
+            &service,
+            Command::LoadProcesses {
+                serial: "serial".to_owned(),
+            },
+        );
+
+        assert!(matches!(
+            &events[0],
+            CommandEvent::Processes {
+                result: Ok(processes),
+                ..
+            } if processes.len() == 1 && processes[0].pid == 42
+        ));
+        assert_eq!(
+            service.calls.lock().unwrap().as_slice(),
+            ["processes(serial)"]
+        );
     }
 
     #[test]

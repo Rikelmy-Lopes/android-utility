@@ -1,14 +1,17 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui;
 
-use android_utility_core::{InstalledApp, PackageName, sort_apps};
+use android_utility_core::{
+    InstalledApp, PackageName, ProcessSort, ProcessUsage, sort_apps, sort_processes,
+};
 
 use super::apps_panel::{self, AppsAction, AppsPanel};
 use super::confirm::{self, ConfirmKind, ConfirmResponse, PendingConfirmation};
+use super::processes_panel::{self, ProcessesAction, ProcessesPanel};
 use crate::adb::{Adb, AdbError, Device, DeviceService, DeviceState};
 use crate::commands::{self, Command, CommandEvent, LabelTarget, OperationOutcome};
 use crate::i18n::Translations;
@@ -32,6 +35,11 @@ pub struct AndroidUtilityApp {
     labels_pending: bool,
     confirmation: Option<PendingConfirmation>,
     selected_tab: Tab,
+    processes: Vec<ProcessUsage>,
+    process_sort: ProcessSort,
+    process_refresh_seconds: u64,
+    loading_processes: bool,
+    last_process_refresh: Option<Instant>,
     status: StatusMessage,
 }
 
@@ -108,6 +116,11 @@ impl AndroidUtilityApp {
             labels_pending: false,
             confirmation: None,
             selected_tab: Tab::Apps,
+            processes: Vec::new(),
+            process_sort: ProcessSort::Cpu,
+            process_refresh_seconds: 2,
+            loading_processes: false,
+            last_process_refresh: None,
             status,
         };
 
@@ -202,6 +215,23 @@ impl AndroidUtilityApp {
         self.receivers.push(commands::spawn(
             self.service.clone(),
             Command::LoadApps { serial },
+        ));
+    }
+
+    fn load_processes(&mut self) {
+        if self.loading_processes {
+            return;
+        }
+
+        let Some(serial) = self.selected_serial().map(str::to_owned) else {
+            return;
+        };
+
+        self.loading_processes = true;
+        self.last_process_refresh = Some(Instant::now());
+        self.receivers.push(commands::spawn(
+            self.service.clone(),
+            Command::LoadProcesses { serial },
         ));
     }
 
@@ -359,6 +389,9 @@ impl AndroidUtilityApp {
         match event {
             CommandEvent::Devices(result) => self.handle_devices(result),
             CommandEvent::Apps { serial, result } => self.handle_apps(&serial, result),
+            CommandEvent::Processes { serial, result } => {
+                self.handle_processes(&serial, result);
+            }
             CommandEvent::Label {
                 serial,
                 package,
@@ -456,6 +489,9 @@ impl AndroidUtilityApp {
                     self.apps.clear();
                     self.loading_apps = false;
                     self.labels_pending = false;
+                    self.processes.clear();
+                    self.loading_processes = false;
+                    self.last_process_refresh = None;
                 }
 
                 self.selected_device_index = desired_index;
@@ -471,6 +507,9 @@ impl AndroidUtilityApp {
                 self.devices.clear();
                 self.selected_device_index = None;
                 self.apps.clear();
+                self.processes.clear();
+                self.loading_processes = false;
+                self.last_process_refresh = None;
                 self.set_error(self.error_text(&error));
             }
         }
@@ -502,6 +541,24 @@ impl AndroidUtilityApp {
             }
             Err(error) => {
                 self.apps.clear();
+                self.set_error(self.error_text(&error));
+            }
+        }
+    }
+
+    fn handle_processes(&mut self, serial: &str, result: Result<Vec<ProcessUsage>, AdbError>) {
+        if self.selected_serial() != Some(serial) {
+            return;
+        }
+
+        self.loading_processes = false;
+
+        match result {
+            Ok(mut processes) => {
+                sort_processes(&mut processes, self.process_sort);
+                self.processes = processes;
+            }
+            Err(error) => {
                 self.set_error(self.error_text(&error));
             }
         }
@@ -540,6 +597,9 @@ impl AndroidUtilityApp {
                         self.apps.clear();
                         self.loading_apps = false;
                         self.labels_pending = false;
+                        self.processes.clear();
+                        self.loading_processes = false;
+                        self.last_process_refresh = None;
                         self.load_apps();
                     }
                 }
@@ -603,7 +663,11 @@ impl eframe::App for AndroidUtilityApp {
         self.draw_status_bar(ui);
 
         let mut action = None;
+        let mut process_action = None;
         let translations = &self.translations;
+        let previous_tab = self.selected_tab;
+        let previous_sort = self.process_sort;
+        let previous_interval = self.process_refresh_seconds;
         let mut selected_tab = self.selected_tab;
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -631,20 +695,72 @@ impl eframe::App for AndroidUtilityApp {
                         },
                     );
                 }
-                Tab::Device => {}
+                Tab::Device => {
+                    process_action = processes_panel::show(
+                        ui,
+                        ProcessesPanel {
+                            processes: &self.processes,
+                            sort: &mut self.process_sort,
+                            refresh_seconds: &mut self.process_refresh_seconds,
+                            loading: self.loading_processes,
+                            translations,
+                        },
+                    );
+                }
             }
         });
 
         self.selected_tab = selected_tab;
 
+        if self.process_sort != previous_sort {
+            sort_processes(&mut self.processes, self.process_sort);
+        }
+
+        if self.process_refresh_seconds != previous_interval {
+            self.last_process_refresh = None;
+        }
+
         if let Some(action) = action {
             self.handle_apps_action(action);
         }
 
+        if process_action == Some(ProcessesAction::Refresh) {
+            self.load_processes();
+        }
+
+        let process_interval = Duration::from_secs(self.process_refresh_seconds.max(1));
+        let entered_device_tab = previous_tab != Tab::Device && selected_tab == Tab::Device;
+        let refresh_due = process_refresh_due(self.last_process_refresh, process_interval);
+
+        if selected_tab == Tab::Device && (entered_device_tab || refresh_due) {
+            self.load_processes();
+        }
+
         self.show_confirmation(ui.ctx());
 
-        if !self.receivers.is_empty() {
-            ui.ctx().request_repaint_after(Duration::from_millis(100));
+        let repaint_delay = if selected_tab == Tab::Device {
+            let wait = self
+                .last_process_refresh
+                .map(|last| process_interval.saturating_sub(last.elapsed()))
+                .unwrap_or(process_interval);
+
+            Some(wait.max(Duration::from_millis(100)))
+        } else {
+            None
+        };
+
+        let repaint_delay = if self.receivers.is_empty() {
+            repaint_delay
+        } else {
+            Some(
+                repaint_delay
+                    .unwrap_or(Duration::from_millis(100))
+                    .min(Duration::from_millis(100)),
+            )
+        };
+
+        if let Some(delay) = repaint_delay {
+            ui.ctx().request_repaint_after(delay);
         }
     }
 }
@@ -656,5 +772,33 @@ fn device_state_key(state: DeviceState) -> &'static str {
         DeviceState::Unauthorized => "app.device_unauthorized",
         DeviceState::NoPermissions => "app.device_no_permissions",
         DeviceState::Unknown => "app.device_unknown_state",
+    }
+}
+
+fn process_refresh_due(last: Option<Instant>, interval: Duration) -> bool {
+    last.is_none_or(|last| last.elapsed() >= interval)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refresh_is_due_without_a_previous_snapshot() {
+        assert!(process_refresh_due(None, Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn refresh_waits_for_the_configured_interval() {
+        let now = Instant::now();
+        let recent = now
+            .checked_sub(Duration::from_millis(500))
+            .expect("instant");
+
+        assert!(!process_refresh_due(Some(recent), Duration::from_secs(2)));
+        assert!(process_refresh_due(
+            Some(recent),
+            Duration::from_millis(400)
+        ));
     }
 }
