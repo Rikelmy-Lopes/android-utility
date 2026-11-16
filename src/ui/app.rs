@@ -31,7 +31,15 @@ pub struct AndroidUtilityApp {
     loading_apps: bool,
     labels_pending: bool,
     confirmation: Option<PendingConfirmation>,
+    selected_tab: Tab,
     status: StatusMessage,
+}
+
+/// Top-level sections available in the interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Apps,
+    Device,
 }
 
 struct StatusMessage {
@@ -99,6 +107,7 @@ impl AndroidUtilityApp {
             loading_apps: false,
             labels_pending: false,
             confirmation: None,
+            selected_tab: Tab::Apps,
             status,
         };
 
@@ -595,20 +604,38 @@ impl eframe::App for AndroidUtilityApp {
 
         let mut action = None;
         let translations = &self.translations;
+        let mut selected_tab = self.selected_tab;
 
         egui::CentralPanel::default().show(ui, |ui| {
-            action = apps_panel::show(
-                ui,
-                AppsPanel {
-                    apps: &self.apps,
-                    search: &mut self.search,
-                    busy: &self.busy,
-                    loading: self.loading_apps,
-                    loading_labels: self.labels_pending,
-                    translations,
-                },
-            );
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut selected_tab, Tab::Apps, translations.get("tabs.apps"));
+                ui.selectable_value(
+                    &mut selected_tab,
+                    Tab::Device,
+                    translations.get("tabs.device"),
+                );
+            });
+            ui.separator();
+
+            match selected_tab {
+                Tab::Apps => {
+                    action = apps_panel::show(
+                        ui,
+                        AppsPanel {
+                            apps: &self.apps,
+                            search: &mut self.search,
+                            busy: &self.busy,
+                            loading: self.loading_apps,
+                            loading_labels: self.labels_pending,
+                            translations,
+                        },
+                    );
+                }
+                Tab::Device => {}
+            }
         });
+
+        self.selected_tab = selected_tab;
 
         if let Some(action) = action {
             self.handle_apps_action(action);

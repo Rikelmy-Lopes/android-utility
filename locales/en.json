@@ -9,6 +9,9 @@
   "app.device_online": "Online",
   "app.loading_devices": "Looking for devices…",
 
+  "tabs.apps": "Applications",
+  "tabs.device": "Device",
+
   "apps.search_hint": "Search by name or package",
   "apps.loading": "Loading applications…",
   "apps.empty": "No applications found.",

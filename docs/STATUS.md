@@ -25,6 +25,7 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] English translation loading from `locales/en.json`.
 - [x] Per-user cache directory under `%LOCALAPPDATA%` on Windows and `$XDG_DATA_HOME`/`$HOME/.local/share` on Linux.
 - [x] Virtualized application list with fixed-height rows to keep window resizing responsive.
+- [x] Interface split into tabs: application list and an empty Device tab reserved for future features.
 
 ## In Progress
 
