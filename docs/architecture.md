@@ -21,8 +21,6 @@ The application uses a Cargo workspace with two logical parts:
 - **`core`** — a separate crate containing GUI-independent business logic.
 - **Application package** — contains application orchestration, ADB integration, internationalization, startup, and the `egui`/`eframe` UI.
 
-The core crate must not depend on `egui`, `eframe`, or other presentation-layer components.
-
 #### Core Responsibilities
 
 Responsible for:
@@ -34,10 +32,11 @@ Responsible for:
 
 Rules:
 
-- Must not depend on the GUI framework.
+- Must not depend on `egui`, `eframe`, or other presentation-layer components.
+- Must not contain rendering, layout, windowing, or event-loop code.
 - Must not execute ADB commands or spawn operating-system processes.
-- Must not contain rendering, layout, or presentation logic.
 - Should expose clear APIs that can be tested without a GUI or connected device.
+- A change to the GUI framework must not require changes to business rules.
 
 ### ADB Integration
 
@@ -52,11 +51,14 @@ Responsible for:
 Rules:
 
 - Keep process execution and ADB-specific details inside this layer.
+- Check that ADB can be started before attempting device operations.
 - Prefer argument-based process invocation over building shell command strings.
 - Never interpolate untrusted input into shell commands.
 - Do not assume output format or command success without validation.
+- Do not assume a command is supported by every Android version or device.
 - Keep ADB-specific output types separate from domain models where practical.
-- Make the integration testable by allowing process execution or the ADB client to be substituted with a test double.
+- Allow process execution or the ADB client to be substituted with a test double.
+- Make destructive or state-changing device operations explicit.
 
 ### Application / Commands
 
@@ -69,14 +71,12 @@ Responsible for:
 
 Rules:
 
-- The UI must not execute ADB processes directly.
-- The UI must not modify business state through hidden side effects.
 - Each action should have one clear responsibility.
 - Use stable command identifiers when commands are externally referenced, logged, or persisted. Once published, an identifier must not be renamed casually.
 
 ### UI / Presentation
 
-The graphical interface uses `egui` through `eframe`. UI code belongs in the application layer and must consume application services and commands.
+The graphical interface uses `egui` through `eframe`. UI code belongs in the application package and must consume application services and commands.
 
 Responsible for:
 
@@ -88,19 +88,10 @@ Responsible for:
 Rules:
 
 - Must not contain business rules or ADB process logic.
-- Must not block while waiting for device operations.
+- Must not modify business state through hidden side effects.
 - Must consume application-level results rather than parse raw ADB output.
 
-## Core / GUI Decoupling
-
-- `core` must not depend on `egui` or `eframe`.
-- The core crate must not contain rendering, layout, windowing, or event-loop code.
-- The GUI consumes the core through exposed APIs and application commands.
-- A change to the GUI framework must not require changes to business rules.
-
 ## Dependency Direction
-
-The intended dependency direction is:
 
 ```text
 UI
@@ -121,7 +112,6 @@ Represent meaningful user actions as commands or equivalent explicit application
 - The UI dispatches an action to an application-level handler or execution queue.
 - The handler coordinates the required services.
 - The UI receives structured results and state updates.
-- Long-running actions execute asynchronously.
 - Commands should be independently testable without rendering a UI.
 
 When stable command identifiers are needed:
@@ -178,7 +168,7 @@ The application must compile for Windows and Linux.
 
 ## Logging and Configuration
 
-- Store logs and user configuration in an appropriate per-user application data directory.
+- Store logs, caches, and user configuration in an appropriate per-user application data directory. Do not write generated files into the installation directory unless the platform explicitly requires it.
 - Do not log sensitive device data, personal information, or command output indiscriminately.
 - Make log verbosity configurable where appropriate.
 - Keep configuration loading and persistence outside business logic.
@@ -215,8 +205,7 @@ A useful test: if a file cannot be described in one sentence without using "and"
 
 Do not mix responsibilities merely to reduce the number of files. Do not create unnecessary abstractions or layers without a concrete need.
 
-## Testing and Extensibility
+## Testability and Extensibility
 
-- Core logic must be testable without ADB or a physical device.
-- Keep parsing tests independent from live device tests.
+- Design code so it can be covered by unit tests that do not need ADB, a connected device, or a GUI.
 - Design interfaces around actual application needs rather than mirroring every ADB command.
