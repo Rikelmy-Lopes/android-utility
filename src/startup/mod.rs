@@ -1,5 +1,7 @@
 //! Application startup helpers: per-user data locations.
 
+pub mod labels;
+
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};

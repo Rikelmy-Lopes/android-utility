@@ -13,6 +13,7 @@ use crate::adb::{Adb, AdbError, Device, DeviceService, DeviceState};
 use crate::commands::{self, Command, CommandEvent, LabelTarget, OperationOutcome};
 use crate::i18n::Translations;
 use crate::startup::AppPaths;
+use crate::startup::labels::LabelCache;
 
 /// Top-level application state rendered by the `egui` interface.
 pub struct AndroidUtilityApp {
@@ -22,6 +23,7 @@ pub struct AndroidUtilityApp {
     selected_device_index: Option<usize>,
     apps: Vec<InstalledApp>,
     labels: HashMap<String, Option<String>>,
+    label_cache: LabelCache,
     search: String,
     receivers: Vec<Receiver<CommandEvent>>,
     busy: HashSet<PackageName>,
@@ -48,20 +50,28 @@ impl AndroidUtilityApp {
     pub fn new(_creation_context: &eframe::CreationContext<'_>) -> Self {
         let translations = Translations::english();
 
-        let (service, startup_error) = match AppPaths::for_current_user()
+        let (service, label_cache, startup_error) = match AppPaths::for_current_user()
             .and_then(|paths| paths.ensure_cache_dir())
         {
             Ok(cache_dir) => (
-                Arc::new(Adb::new().with_cache_dir(cache_dir)) as Arc<dyn DeviceService>,
+                Arc::new(Adb::new().with_cache_dir(cache_dir.clone())) as Arc<dyn DeviceService>,
+                LabelCache::load(&cache_dir),
                 None,
             ),
             Err(error) => (
                 Arc::new(Adb::new()) as Arc<dyn DeviceService>,
+                LabelCache::disabled(),
                 Some(
                     translations.format("error.cache_directory", &[("error", &error.to_string())]),
                 ),
             ),
         };
+
+        let labels = label_cache
+            .labels()
+            .iter()
+            .map(|(package, name)| (package.clone(), Some(name.clone())))
+            .collect();
 
         let status = match startup_error {
             Some(text) => StatusMessage {
@@ -80,7 +90,8 @@ impl AndroidUtilityApp {
             devices: Vec::new(),
             selected_device_index: None,
             apps: Vec::new(),
-            labels: HashMap::new(),
+            labels,
+            label_cache,
             search: String::new(),
             receivers: Vec::new(),
             busy: HashSet::new(),
@@ -350,6 +361,15 @@ impl AndroidUtilityApp {
 
                 self.labels
                     .insert(package.as_str().to_owned(), label.clone());
+
+                if let Some(name) = &label
+                    && let Err(error) = self.label_cache.insert(package.as_str(), name)
+                {
+                    let text = self
+                        .translations
+                        .format("error.label_cache", &[("error", &error.to_string())]);
+                    self.set_error(text);
+                }
 
                 let updated = match self.apps.iter_mut().find(|app| app.package == package) {
                     Some(app) => {

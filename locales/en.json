@@ -41,7 +41,7 @@
   "error.no_device_selected": "No usable device selected.",
   "error.permission_denied": "The device denied this action. Recent Android versions block disabling or removing system applications through ADB. Details: {message}",
   "error.cache_directory": "Could not create the application cache directory: {error}",
-
+  "error.label_cache": "Could not save the application-name cache: {error}",
   "confirm.disable_title": "Disable application",
   "confirm.uninstall_title": "Uninstall application",
   "confirm.disable_message": "Disable {name} ({package})?",

@@ -21,6 +21,7 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Warning that removing a system application may brick the device.
 - [x] Application names loaded on demand; the default listing shows package names only.
 - [x] Per-row action to resolve a single application name without loading all of them.
+- [x] Resolved application names cached in `labels.json` and reused before reading an APK again.
 - [x] English translation loading from `locales/en.json`.
 - [x] Per-user cache directory under `%LOCALAPPDATA%` on Windows and `$XDG_DATA_HOME`/`$HOME/.local/share` on Linux.
 - [x] Virtualized application list with fixed-height rows to keep window resizing responsive.
@@ -35,5 +36,4 @@ Current implementation status of Android Utility. Read this file before starting
 - [ ] Configurable ADB executable path (currently resolved from `PATH`).
 - [ ] Device information and analysis features beyond the application list.
 - [ ] Application configuration, logging, and theme persistence.
-- [ ] Cache resolved application labels between sessions.
 - [ ] Verify Linux build and document platform prerequisites.
