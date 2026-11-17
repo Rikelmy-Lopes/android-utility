@@ -7,8 +7,67 @@ use crate::i18n::Translations;
 /// Height allocated for one process row, in points.
 const ROW_HEIGHT: f32 = 26.0;
 
-/// Refresh intervals offered to the user, in seconds.
-pub const REFRESH_INTERVALS: [u64; 4] = [1, 2, 5, 10];
+/// Smallest refresh interval offered to the user, in milliseconds.
+pub const MIN_REFRESH_MS: u64 = 100;
+
+/// Largest refresh interval offered to the user, in milliseconds.
+pub const MAX_REFRESH_MS: u64 = 60_000;
+
+/// Refresh interval selected by the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessRefresh {
+    /// Use one of the preset intervals.
+    Preset(u64),
+    /// Use the interval entered by the user.
+    Custom,
+}
+
+impl ProcessRefresh {
+    /// Choices offered to the user.
+    pub const OPTIONS: [Self; 5] = [
+        Self::Preset(1000),
+        Self::Preset(2000),
+        Self::Preset(5000),
+        Self::Preset(10_000),
+        Self::Custom,
+    ];
+
+    /// Effective refresh interval in milliseconds.
+    pub fn interval_ms(self, custom_ms: u64) -> u64 {
+        match self {
+            Self::Preset(ms) => ms,
+            Self::Custom => custom_ms.clamp(MIN_REFRESH_MS, MAX_REFRESH_MS),
+        }
+    }
+}
+
+/// Number of processes shown in the list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessLimit {
+    /// Show every process.
+    All,
+    /// Show the first five processes.
+    Five,
+    /// Show the first ten processes.
+    Ten,
+    /// Show the first twenty processes.
+    Twenty,
+}
+
+impl ProcessLimit {
+    /// Limits offered to the user.
+    pub const OPTIONS: [Self; 4] = [Self::All, Self::Five, Self::Ten, Self::Twenty];
+
+    /// Maximum number of processes to display, or `None` for no limit.
+    pub fn count(self) -> Option<usize> {
+        match self {
+            Self::All => None,
+            Self::Five => Some(5),
+            Self::Ten => Some(10),
+            Self::Twenty => Some(20),
+        }
+    }
+}
 
 /// State needed to render the device process list.
 pub struct ProcessesPanel<'a> {
@@ -16,8 +75,12 @@ pub struct ProcessesPanel<'a> {
     pub processes: &'a [ProcessUsage],
     /// Selected ordering.
     pub sort: &'a mut ProcessSort,
-    /// Selected refresh interval in seconds.
-    pub refresh_seconds: &'a mut u64,
+    /// Selected refresh interval.
+    pub refresh: &'a mut ProcessRefresh,
+    /// User-entered refresh interval in milliseconds.
+    pub custom_refresh_ms: &'a mut u64,
+    /// Selected number of processes to display.
+    pub limit: &'a mut ProcessLimit,
     /// Whether a process snapshot is being read.
     pub loading: bool,
     /// Translation source.
@@ -57,16 +120,36 @@ pub fn show(ui: &mut egui::Ui, state: ProcessesPanel<'_>) -> Option<ProcessesAct
 
         ui.label(translations.get("processes.interval"));
         egui::ComboBox::from_id_salt("process_refresh_interval")
-            .selected_text(seconds_label(translations, *state.refresh_seconds))
+            .selected_text(refresh_label(translations, *state.refresh))
             .show_ui(ui, |ui| {
-                for seconds in REFRESH_INTERVALS {
-                    ui.selectable_value(
-                        state.refresh_seconds,
-                        seconds,
-                        seconds_label(translations, seconds),
-                    );
+                for option in ProcessRefresh::OPTIONS {
+                    ui.selectable_value(state.refresh, option, refresh_label(translations, option));
                 }
             });
+
+        if *state.refresh == ProcessRefresh::Custom {
+            ui.add(
+                egui::DragValue::new(state.custom_refresh_ms)
+                    .range(MIN_REFRESH_MS..=MAX_REFRESH_MS)
+                    .speed(50.0)
+                    .suffix(translations.get("processes.millisecond_suffix")),
+            );
+            *state.custom_refresh_ms =
+                (*state.custom_refresh_ms).clamp(MIN_REFRESH_MS, MAX_REFRESH_MS);
+        }
+
+        ui.separator();
+
+        ui.label(translations.get("processes.show"));
+        egui::ComboBox::from_id_salt("process_limit")
+            .selected_text(limit_label(translations, *state.limit))
+            .show_ui(ui, |ui| {
+                for limit in ProcessLimit::OPTIONS {
+                    ui.selectable_value(state.limit, limit, limit_label(translations, limit));
+                }
+            });
+
+        ui.separator();
 
         if ui
             .add(egui::Button::new(translations.get("processes.refresh")))
@@ -103,10 +186,12 @@ pub fn show(ui: &mut egui::Ui, state: ProcessesPanel<'_>) -> Option<ProcessesAct
     let spacing = ui.spacing().item_spacing.x * 4.0;
     let command_width = (available_width - fixed_width - spacing).max(160.0);
 
+    let visible = visible_processes(state.processes, *state.limit);
+
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
-        .show_rows(ui, ROW_HEIGHT, state.processes.len(), |ui, range| {
-            for process in &state.processes[range] {
+        .show_rows(ui, ROW_HEIGHT, visible.len(), |ui, range| {
+            for process in &visible[range] {
                 ui.horizontal(|ui| {
                     cell(ui, 56.0, process.pid.to_string(), Align::Right);
                     cell(
@@ -179,8 +264,29 @@ fn sort_label(translations: &Translations, sort: ProcessSort) -> &str {
     }
 }
 
-fn seconds_label(translations: &Translations, seconds: u64) -> String {
-    translations.format("processes.seconds", &[("seconds", &seconds.to_string())])
+fn refresh_label(translations: &Translations, refresh: ProcessRefresh) -> String {
+    match refresh {
+        ProcessRefresh::Preset(ms) => translations.format(
+            "processes.seconds",
+            &[("seconds", &(ms / 1000).to_string())],
+        ),
+        ProcessRefresh::Custom => translations.get("processes.custom").to_owned(),
+    }
+}
+
+fn limit_label(translations: &Translations, limit: ProcessLimit) -> String {
+    match limit.count() {
+        Some(count) => count.to_string(),
+        None => translations.get("processes.show_all").to_owned(),
+    }
+}
+
+/// Returns the leading slice of processes allowed by the selected limit.
+fn visible_processes(processes: &[ProcessUsage], limit: ProcessLimit) -> &[ProcessUsage] {
+    match limit.count() {
+        Some(limit) => &processes[..processes.len().min(limit)],
+        None => processes,
+    }
 }
 
 fn format_memory(bytes: u64) -> String {
@@ -204,6 +310,66 @@ fn format_memory(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preset_refresh_intervals_ignore_the_custom_value() {
+        assert_eq!(ProcessRefresh::Preset(1000).interval_ms(500), 1000);
+        assert_eq!(ProcessRefresh::Preset(10_000).interval_ms(500), 10_000);
+    }
+
+    #[test]
+    fn custom_refresh_interval_is_clamped_to_the_allowed_range() {
+        assert_eq!(ProcessRefresh::Custom.interval_ms(500), 500);
+        assert_eq!(ProcessRefresh::Custom.interval_ms(1), MIN_REFRESH_MS);
+        assert_eq!(
+            ProcessRefresh::Custom.interval_ms(MAX_REFRESH_MS * 2),
+            MAX_REFRESH_MS
+        );
+    }
+
+    #[test]
+    fn process_limit_reports_a_maximum_row_count() {
+        assert_eq!(ProcessLimit::All.count(), None);
+        assert_eq!(ProcessLimit::Five.count(), Some(5));
+        assert_eq!(ProcessLimit::Ten.count(), Some(10));
+        assert_eq!(ProcessLimit::Twenty.count(), Some(20));
+    }
+
+    fn sample_processes(count: u32) -> Vec<ProcessUsage> {
+        (0..count)
+            .map(|pid| ProcessUsage {
+                pid,
+                cpu_percent: 0.0,
+                memory_bytes: 0,
+                cpu_time: String::new(),
+                command: format!("proc{pid}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn visible_processes_keeps_every_entry_without_a_limit() {
+        let processes = sample_processes(30);
+
+        assert_eq!(visible_processes(&processes, ProcessLimit::All).len(), 30);
+    }
+
+    #[test]
+    fn visible_processes_keeps_only_the_leading_entries_with_a_limit() {
+        let processes = sample_processes(30);
+
+        let visible = visible_processes(&processes, ProcessLimit::Ten);
+        assert_eq!(visible.len(), 10);
+        assert_eq!(visible[0].pid, 0);
+        assert_eq!(visible[9].pid, 9);
+    }
+
+    #[test]
+    fn visible_processes_handles_a_list_shorter_than_the_limit() {
+        let processes = sample_processes(3);
+
+        assert_eq!(visible_processes(&processes, ProcessLimit::Five).len(), 3);
+    }
 
     #[test]
     fn formats_memory_with_binary_units() {

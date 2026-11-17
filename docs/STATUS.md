@@ -27,6 +27,8 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Virtualized application list with fixed-height rows to keep window resizing responsive.
 - [x] Interface split into tabs: application list and device tools.
 - [x] Device tab showing processes ordered by CPU or memory, with configurable refresh interval.
+- [x] Device tab refresh interval selectable from presets or a custom value in milliseconds, minimum 100 ms.
+- [x] Device tab option to limit the process list to the first 5, 10, or 20 entries.
 
 ## In Progress
 

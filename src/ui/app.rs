@@ -11,7 +11,7 @@ use android_utility_core::{
 
 use super::apps_panel::{self, AppsAction, AppsPanel};
 use super::confirm::{self, ConfirmKind, ConfirmResponse, PendingConfirmation};
-use super::processes_panel::{self, ProcessesAction, ProcessesPanel};
+use super::processes_panel::{self, ProcessLimit, ProcessRefresh, ProcessesAction, ProcessesPanel};
 use crate::adb::{Adb, AdbError, Device, DeviceService, DeviceState};
 use crate::commands::{self, Command, CommandEvent, LabelTarget, OperationOutcome};
 use crate::i18n::Translations;
@@ -37,7 +37,9 @@ pub struct AndroidUtilityApp {
     selected_tab: Tab,
     processes: Vec<ProcessUsage>,
     process_sort: ProcessSort,
-    process_refresh_seconds: u64,
+    process_refresh: ProcessRefresh,
+    process_custom_refresh_ms: u64,
+    process_limit: ProcessLimit,
     loading_processes: bool,
     last_process_refresh: Option<Instant>,
     status: StatusMessage,
@@ -118,7 +120,9 @@ impl AndroidUtilityApp {
             selected_tab: Tab::Apps,
             processes: Vec::new(),
             process_sort: ProcessSort::Cpu,
-            process_refresh_seconds: 2,
+            process_refresh: ProcessRefresh::Preset(2000),
+            process_custom_refresh_ms: 2000,
+            process_limit: ProcessLimit::All,
             loading_processes: false,
             last_process_refresh: None,
             status,
@@ -667,7 +671,7 @@ impl eframe::App for AndroidUtilityApp {
         let translations = &self.translations;
         let previous_tab = self.selected_tab;
         let previous_sort = self.process_sort;
-        let previous_interval = self.process_refresh_seconds;
+        let previous_interval = (self.process_refresh, self.process_custom_refresh_ms);
         let mut selected_tab = self.selected_tab;
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -701,7 +705,9 @@ impl eframe::App for AndroidUtilityApp {
                         ProcessesPanel {
                             processes: &self.processes,
                             sort: &mut self.process_sort,
-                            refresh_seconds: &mut self.process_refresh_seconds,
+                            refresh: &mut self.process_refresh,
+                            custom_refresh_ms: &mut self.process_custom_refresh_ms,
+                            limit: &mut self.process_limit,
                             loading: self.loading_processes,
                             translations,
                         },
@@ -716,7 +722,7 @@ impl eframe::App for AndroidUtilityApp {
             sort_processes(&mut self.processes, self.process_sort);
         }
 
-        if self.process_refresh_seconds != previous_interval {
+        if (self.process_refresh, self.process_custom_refresh_ms) != previous_interval {
             self.last_process_refresh = None;
         }
 
@@ -728,7 +734,10 @@ impl eframe::App for AndroidUtilityApp {
             self.load_processes();
         }
 
-        let process_interval = Duration::from_secs(self.process_refresh_seconds.max(1));
+        let process_interval = Duration::from_millis(
+            self.process_refresh
+                .interval_ms(self.process_custom_refresh_ms),
+        );
         let entered_device_tab = previous_tab != Tab::Device && selected_tab == Tab::Device;
         let refresh_due = process_refresh_due(self.last_process_refresh, process_interval);
 
@@ -744,7 +753,7 @@ impl eframe::App for AndroidUtilityApp {
                 .map(|last| process_interval.saturating_sub(last.elapsed()))
                 .unwrap_or(process_interval);
 
-            Some(wait.max(Duration::from_millis(100)))
+            Some(wait.max(Duration::from_millis(processes_panel::MIN_REFRESH_MS)))
         } else {
             None
         };
