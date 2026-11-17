@@ -4,6 +4,8 @@ use android_utility_core::PackageName;
 
 use crate::i18n::Translations;
 
+use super::theme;
+
 /// Destructive operation that needs explicit confirmation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfirmKind {
@@ -44,9 +46,11 @@ pub fn show(
     let mut response = None;
 
     let modal = egui::Modal::new(egui::Id::unique("confirmation")).show(context, |ui| {
+        let palette = theme::palette(ui);
+
         ui.set_width(380.0);
         ui.heading(translations.get(title_key(pending.kind)));
-        ui.add_space(8.0);
+        ui.add_space(theme::size::SPACING_SM);
 
         let message = translations.format(
             message_key(pending.kind),
@@ -58,24 +62,37 @@ pub fn show(
         ui.label(message);
 
         if pending.is_system {
-            ui.add_space(8.0);
+            ui.add_space(theme::size::SPACING_SM);
             ui.colored_label(
-                ui.visuals().warn_fg_color,
+                palette.warning_text,
                 translations.get("confirm.system_warning"),
             );
         }
 
-        ui.add_space(12.0);
+        ui.add_space(theme::size::SPACING_MD);
         ui.horizontal(|ui| {
-            if ui.button(translations.get("confirm.cancel")).clicked() {
+            let button_size = egui::vec2(112.0, theme::size::CONTROL_HEIGHT + 2.0);
+
+            if ui
+                .add(
+                    theme::toned_button(
+                        translations.get("confirm.cancel"),
+                        theme::ButtonTone::Neutral,
+                        palette,
+                    )
+                    .min_size(button_size),
+                )
+                .clicked()
+            {
                 response = Some(ConfirmResponse::Cancelled);
             }
 
-            let confirm = egui::Button::new(
-                egui::RichText::new(translations.get("confirm.confirm"))
-                    .color(egui::Color32::WHITE),
+            let confirm = theme::toned_button(
+                translations.get("confirm.confirm"),
+                confirm_tone(pending.kind),
+                palette,
             )
-            .fill(confirm_color(pending.kind));
+            .min_size(button_size);
 
             if ui.add(confirm).clicked() {
                 response = Some(ConfirmResponse::Confirmed);
@@ -104,9 +121,9 @@ fn message_key(kind: ConfirmKind) -> &'static str {
     }
 }
 
-fn confirm_color(kind: ConfirmKind) -> egui::Color32 {
+fn confirm_tone(kind: ConfirmKind) -> theme::ButtonTone {
     match kind {
-        ConfirmKind::Disable => egui::Color32::from_rgb(150, 105, 20),
-        ConfirmKind::Uninstall => egui::Color32::from_rgb(170, 45, 40),
+        ConfirmKind::Disable => theme::ButtonTone::Warning,
+        ConfirmKind::Uninstall => theme::ButtonTone::Danger,
     }
 }

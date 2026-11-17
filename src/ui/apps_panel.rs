@@ -6,11 +6,7 @@ use android_utility_core::{InstalledApp, PackageName};
 
 use crate::i18n::Translations;
 
-/// Height allocated for one application row, in points.
-///
-/// Rows are rendered with fixed height so the list can be virtualized and only
-/// the visible range is laid out each frame.
-const ROW_HEIGHT: f32 = 44.0;
+use super::theme;
 
 /// Read-only state needed to render the application list.
 pub struct AppsPanel<'a> {
@@ -46,13 +42,24 @@ pub enum AppsAction {
 /// Renders the application list and returns the requested action.
 pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
     let translations = state.translations;
+    let palette = theme::palette(ui);
     let mut action = None;
 
     ui.horizontal(|ui| {
+        let search_frame = egui::Frame::new()
+            .fill(palette.input_background)
+            .stroke(egui::Stroke::new(1.0, palette.border))
+            .corner_radius(egui::CornerRadius::same(theme::radius::CONTROL))
+            .inner_margin(egui::Margin::symmetric(
+                theme::size::INPUT_PADDING_X,
+                theme::size::INPUT_PADDING_Y,
+            ));
+
         ui.add(
             egui::TextEdit::singleline(state.search)
+                .frame(search_frame)
                 .hint_text(translations.get("apps.search_hint"))
-                .desired_width(280.0),
+                .desired_width(theme::size::SEARCH_WIDTH),
         );
 
         ui.label(translations.format("apps.count", &[("count", &state.apps.len().to_string())]));
@@ -63,8 +70,11 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
         } else if ui
             .add_enabled(
                 !state.apps.is_empty(),
-                egui::Button::new(translations.get("apps.load_names"))
-                    .min_size(egui::vec2(110.0, 26.0)),
+                theme::toned_button(
+                    translations.get("apps.load_names"),
+                    theme::ButtonTone::Primary,
+                    palette,
+                ),
             )
             .on_hover_text(translations.get("apps.load_names_tooltip"))
             .clicked()
@@ -73,7 +83,7 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
         }
     });
 
-    ui.add_space(4.0);
+    ui.add_space(theme::size::SPACING_SM);
 
     if state.loading && state.apps.is_empty() {
         ui.horizontal(|ui| {
@@ -104,96 +114,125 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
-        .show_rows(ui, ROW_HEIGHT, visible.len(), |ui, range| {
-            for app in &visible[range] {
-                let is_busy = state.busy.contains(&app.package);
+        .show_rows(
+            ui,
+            theme::size::ROW_HEIGHT_APPS,
+            visible.len(),
+            |ui, range| {
+                for app in &visible[range] {
+                    let is_busy = state.busy.contains(&app.package);
 
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), ROW_HEIGHT),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        ui.vertical(|ui| {
-                            ui.label(egui::RichText::new(app.display_name()).strong());
-                            ui.label(
-                                egui::RichText::new(app.package.as_str())
-                                    .small()
-                                    .weak()
-                                    .monospace(),
-                            );
-                        });
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), theme::size::ROW_HEIGHT_APPS),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.add_space(theme::size::ROW_PADDING);
 
-                        if app.label.is_none() && app.apk_path.is_some() {
-                            let load = egui::Button::new(
-                                egui::RichText::new(translations.get("apps.load_name")).small(),
-                            )
-                            .min_size(egui::vec2(86.0, 24.0));
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new(app.display_name()).strong());
+                                ui.label(
+                                    egui::RichText::new(app.package.as_str())
+                                        .small()
+                                        .weak()
+                                        .monospace(),
+                                );
+                            });
 
-                            if ui
-                                .add_enabled(!state.loading_labels, load)
-                                .on_hover_text(translations.get("apps.load_name_tooltip"))
-                                .clicked()
-                            {
-                                action = Some(AppsAction::LoadName(app.package.clone()));
+                            if app.label.is_none() && app.apk_path.is_some() {
+                                let load = theme::toned_button(
+                                    translations.get("apps.load_name"),
+                                    theme::ButtonTone::Neutral,
+                                    palette,
+                                )
+                                .min_size(egui::vec2(
+                                    theme::size::BUTTON_WIDTH_COMPACT,
+                                    theme::size::CONTROL_HEIGHT,
+                                ));
+
+                                if ui
+                                    .add_enabled(!state.loading_labels, load)
+                                    .on_hover_text(translations.get("apps.load_name_tooltip"))
+                                    .clicked()
+                                {
+                                    action = Some(AppsAction::LoadName(app.package.clone()));
+                                }
                             }
-                        }
 
-                        if app.is_system {
-                            ui.label(
-                                egui::RichText::new(translations.get("apps.system"))
-                                    .small()
-                                    .color(ui.visuals().warn_fg_color),
-                            )
-                            .on_hover_text(translations.get("apps.system_tooltip"));
-                        }
-
-                        if app.is_disabled {
-                            ui.label(
-                                egui::RichText::new(translations.get("apps.disabled"))
-                                    .small()
-                                    .weak(),
-                            );
-                        }
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let button_size = egui::vec2(104.0, 30.0);
-
-                            let uninstall = egui::Button::new(
-                                egui::RichText::new(translations.get("apps.uninstall"))
-                                    .color(ui.visuals().error_fg_color),
-                            )
-                            .min_size(button_size);
-
-                            if ui.add_enabled(!is_busy, uninstall).clicked() {
-                                action = Some(AppsAction::Uninstall(app.package.clone()));
+                            if app.is_system {
+                                ui.label(
+                                    egui::RichText::new(translations.get("apps.system"))
+                                        .small()
+                                        .color(palette.warning_text),
+                                )
+                                .on_hover_text(translations.get("apps.system_tooltip"));
                             }
 
                             if app.is_disabled {
-                                let enable = egui::Button::new(translations.get("apps.enable"))
-                                    .min_size(button_size);
-                                if ui.add_enabled(!is_busy, enable).clicked() {
-                                    action = Some(AppsAction::Enable(app.package.clone()));
-                                }
-                            } else {
-                                let disable = egui::Button::new(translations.get("apps.disable"))
-                                    .min_size(button_size);
-                                let response = ui.add_enabled(!is_busy, disable);
-                                let response = if app.is_system {
-                                    response.on_hover_text(
-                                        translations.get("apps.disable_system_tooltip"),
-                                    )
-                                } else {
-                                    response
-                                };
-
-                                if response.clicked() {
-                                    action = Some(AppsAction::Disable(app.package.clone()));
-                                }
+                                ui.label(
+                                    egui::RichText::new(translations.get("apps.disabled"))
+                                        .small()
+                                        .weak(),
+                                );
                             }
-                        });
-                    },
-                );
-            }
-        });
+
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.add_space(theme::size::ROW_PADDING);
+
+                                    let button_size = egui::vec2(
+                                        theme::size::BUTTON_WIDTH,
+                                        theme::size::CONTROL_HEIGHT,
+                                    );
+
+                                    let uninstall = theme::toned_button(
+                                        translations.get("apps.uninstall"),
+                                        theme::ButtonTone::Danger,
+                                        palette,
+                                    )
+                                    .min_size(button_size);
+
+                                    if ui.add_enabled(!is_busy, uninstall).clicked() {
+                                        action = Some(AppsAction::Uninstall(app.package.clone()));
+                                    }
+
+                                    if app.is_disabled {
+                                        let enable = theme::toned_button(
+                                            translations.get("apps.enable"),
+                                            theme::ButtonTone::Success,
+                                            palette,
+                                        )
+                                        .min_size(button_size);
+                                        if ui.add_enabled(!is_busy, enable).clicked() {
+                                            action = Some(AppsAction::Enable(app.package.clone()));
+                                        }
+                                    } else {
+                                        let disable = theme::toned_button(
+                                            translations.get("apps.disable"),
+                                            theme::ButtonTone::Warning,
+                                            palette,
+                                        )
+                                        .min_size(button_size);
+                                        let response = ui.add_enabled(!is_busy, disable);
+                                        let response = if app.is_system {
+                                            response.on_hover_text(
+                                                translations.get("apps.disable_system_tooltip"),
+                                            )
+                                        } else {
+                                            response
+                                        };
+
+                                        if response.clicked() {
+                                            action = Some(AppsAction::Disable(app.package.clone()));
+                                        }
+                                    }
+                                },
+                            );
+                        },
+                    );
+                }
+            },
+        );
 
     action
 }

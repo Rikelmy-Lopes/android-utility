@@ -31,6 +31,11 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Device tab option to limit the process list to the first 5, 10, or 20 entries.
 - [x] Diagnostic logging to a daily per-user log file, with terminal output in debug builds.
 - [x] Logged ADB command lines, exit codes, durations, timeouts, failures, and application command events.
+- [x] Centralized design tokens for palettes, semantic colors, font sizes, spacing, radii, and control sizes in `src/ui/theme.rs`.
+- [x] Consistent panel spacing, row alignment, and rounded buttons and input fields.
+- [x] Semantic action colors: red for uninstall and errors, amber for warnings, green for enable and success confirmations.
+- [x] Dark and light themes with a toolbar theme switcher.
+- [x] Selected theme persisted in `settings.json` below the per-user application data directory.
 
 ## In Progress
 
@@ -41,5 +46,4 @@ Current implementation status of Android Utility. Read this file before starting
 - [ ] Application icon extraction and display.
 - [ ] Configurable ADB executable path (currently resolved from `PATH`).
 - [ ] Device information and analysis features beyond the application list.
-- [ ] Application configuration and theme persistence.
 - [ ] Verify Linux build and document platform prerequisites.

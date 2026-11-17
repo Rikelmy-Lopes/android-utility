@@ -4,8 +4,7 @@ use android_utility_core::{ProcessSort, ProcessUsage};
 
 use crate::i18n::Translations;
 
-/// Height allocated for one process row, in points.
-const ROW_HEIGHT: f32 = 26.0;
+use super::theme;
 
 /// Smallest refresh interval offered to the user, in milliseconds.
 pub const MIN_REFRESH_MS: u64 = 100;
@@ -97,6 +96,7 @@ pub enum ProcessesAction {
 /// Renders process resource usage and returns the requested action.
 pub fn show(ui: &mut egui::Ui, state: ProcessesPanel<'_>) -> Option<ProcessesAction> {
     let translations = state.translations;
+    let palette = theme::palette(ui);
     let mut action = None;
 
     ui.horizontal(|ui| {
@@ -152,7 +152,11 @@ pub fn show(ui: &mut egui::Ui, state: ProcessesPanel<'_>) -> Option<ProcessesAct
         ui.separator();
 
         if ui
-            .add(egui::Button::new(translations.get("processes.refresh")))
+            .add(theme::toned_button(
+                translations.get("processes.refresh"),
+                theme::ButtonTone::Primary,
+                palette,
+            ))
             .clicked()
         {
             action = Some(ProcessesAction::Refresh);
@@ -163,7 +167,7 @@ pub fn show(ui: &mut egui::Ui, state: ProcessesPanel<'_>) -> Option<ProcessesAct
         }
     });
 
-    ui.add_space(4.0);
+    ui.add_space(theme::size::SPACING_SM);
 
     if state.loading && state.processes.is_empty() {
         ui.horizontal(|ui| {
@@ -190,27 +194,32 @@ pub fn show(ui: &mut egui::Ui, state: ProcessesPanel<'_>) -> Option<ProcessesAct
 
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
-        .show_rows(ui, ROW_HEIGHT, visible.len(), |ui, range| {
-            for process in &visible[range] {
-                ui.horizontal(|ui| {
-                    cell(ui, 56.0, process.pid.to_string(), Align::Right);
-                    cell(
-                        ui,
-                        64.0,
-                        format!("{:.1}", process.cpu_percent),
-                        Align::Right,
-                    );
-                    cell(ui, 88.0, format_memory(process.memory_bytes), Align::Right);
-                    cell(ui, 92.0, process.cpu_time.clone(), Align::Right);
+        .show_rows(
+            ui,
+            theme::size::ROW_HEIGHT_PROCESSES,
+            visible.len(),
+            |ui, range| {
+                for process in &visible[range] {
+                    ui.horizontal(|ui| {
+                        cell(ui, 56.0, process.pid.to_string(), Align::Right);
+                        cell(
+                            ui,
+                            64.0,
+                            format!("{:.1}", process.cpu_percent),
+                            Align::Right,
+                        );
+                        cell(ui, 88.0, format_memory(process.memory_bytes), Align::Right);
+                        cell(ui, 92.0, process.cpu_time.clone(), Align::Right);
 
-                    ui.add_sized(
-                        egui::vec2(command_width, ROW_HEIGHT),
-                        egui::Label::new(&process.command).truncate(),
-                    )
-                    .on_hover_text(&process.command);
-                });
-            }
-        });
+                        ui.add_sized(
+                            egui::vec2(command_width, theme::size::ROW_HEIGHT_PROCESSES),
+                            egui::Label::new(&process.command).truncate(),
+                        )
+                        .on_hover_text(&process.command);
+                    });
+                }
+            },
+        );
 
     action
 }
@@ -252,9 +261,13 @@ fn cell(ui: &mut egui::Ui, width: f32, text: impl Into<egui::WidgetText>, align:
         Align::Right => egui::Layout::right_to_left(egui::Align::Center),
     };
 
-    ui.allocate_ui_with_layout(egui::vec2(width, ROW_HEIGHT), layout, |ui| {
-        ui.add(egui::Label::new(text).truncate());
-    });
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, theme::size::ROW_HEIGHT_PROCESSES),
+        layout,
+        |ui| {
+            ui.add(egui::Label::new(text).truncate());
+        },
+    );
 }
 
 fn sort_label(translations: &Translations, sort: ProcessSort) -> &str {

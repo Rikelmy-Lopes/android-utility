@@ -31,12 +31,76 @@ Make device state visible and unambiguous.
 - Make detailed diagnostic information available through logs or an appropriate details view.
 - Confirm destructive or state-changing actions before execution.
 
+## Layout and Alignment
+
+- Build every screen from structured horizontal and vertical layout containers. Do not place controls at absolute positions.
+- Align related controls on a shared baseline and use the same vertical alignment for rows, toolbars, and action groups.
+- Keep toolbars, tab bars, list rows, and status bars vertically centered.
+- Right-align numeric columns and row action buttons. Left-align names, labels, and identifiers.
+- Let lists and panels fill the available width instead of assuming a fixed window size.
+- Use one consistent spacing rhythm:
+  - Extra-small spacing: 4 points.
+  - Small spacing: 8 points.
+  - Medium spacing: 12 points.
+  - Panel padding: 12 points.
+  - List row horizontal padding: 8 points.
+- Use a consistent interactive control height of 30 points for buttons, inputs, and selectors.
+- Design for longer translations. Leave room for the longest expected label instead of truncating routine actions.
+
+## Shape and Borders
+
+- Use rounded corners on every button, input field, selector, combo box, and numeric control.
+- Use an 8-point corner radius for controls and a 12-point radius for panels, windows, and dialogs.
+- Keep border widths consistent. Use the palette border color for resting controls and the accent color for focus, hover, and active states.
+- Do not mix sharp and rounded controls in the same view.
+
+## Semantic Colors
+
+Action colors must communicate meaning. Use them consistently across all panels.
+
+- **Primary (blue):** routine positive actions such as refresh and load.
+- **Danger (red):** destructive or risky actions such as uninstall, and error messages.
+- **Warning (amber):** actions that may reduce functionality, such as disabling an application, and system-application warnings.
+- **Success (green):** confirmations and completed operations, such as enabling an application.
+- **Neutral (surface):** ordinary actions such as cancel or resolving a name.
+
+Rules:
+
+- Pair every semantic color with a clear label, icon, or message. Never rely on color alone.
+- Ensure each semantic fill has a foreground color with sufficient contrast in both themes.
+- Use the semantic foreground color from the palette whenever text or an icon is drawn on a semantic fill.
+- Keep destructive actions visually distinct and confirm them before execution.
+
 ## Themes
 
-- Support dark and light themes when the chosen UI framework allows it.
-- Use a consistent, restrained color palette in both themes.
-- Ensure sufficient contrast and readable text in every theme.
-- Persist the user's selected theme in application configuration.
+Support both dark and light themes.
+
+- The toolbar provides an explicit dark/light theme switcher. Do not rely only on the operating-system theme.
+- Apply the selected theme before the first frame is drawn.
+- Persist the selected theme in the application configuration file.
+- Default to the dark theme when no saved preference exists.
+- Use a consistent, restrained palette in both themes. Keep surface, border, text, and semantic colors paired per theme.
+- Ensure sufficient contrast for body text, weak text, disabled text, buttons, inputs, and semantic fills in both themes.
+- Do not hardcode colors in individual panels. Read them from the active theme palette.
+
+## Design Tokens
+
+All visual constants are defined in one place: `src/ui/theme.rs`.
+
+- The `Palette` type defines every surface, text, accent, danger, warning, success, and selection color for both themes.
+- The `font_size` module defines body, small, button, heading, and monospaced text sizes.
+- The `size` module defines spacing, control heights, button widths, row heights, input padding, and panel padding.
+- The `radius` module defines control and panel corner radii.
+- `theme::apply` converts the tokens into framework visuals, spacing, typography, and rounded widget defaults.
+- `theme::toned_button` builds a rounded button with a semantic tone.
+
+Rules:
+
+- Do not hardcode a color, font size, corner radius, or control dimension in a panel or dialog.
+- Add a new token when a new reusable visual value is needed.
+- Update a token in `src/ui/theme.rs` when a visual value must change globally.
+- Keep tokens independent of business logic and ADB data.
+- Cover palette and tone mapping with unit tests when adding or changing semantic colors.
 
 ## Text
 

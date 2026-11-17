@@ -183,6 +183,7 @@ dependencies = [
  "android-utility-core",
  "apk-info",
  "eframe",
+ "serde",
  "serde_json",
  "time",
  "tracing",

@@ -1,6 +1,7 @@
 //! Application startup helpers: per-user data locations.
 
 pub mod labels;
+pub mod settings;
 
 use std::fmt;
 use std::fs;
@@ -43,6 +44,11 @@ impl AppPaths {
     /// Directory for diagnostic log files.
     pub fn log_dir(&self) -> PathBuf {
         self.data_dir().join("logs")
+    }
+
+    /// File storing user preferences.
+    pub fn settings_file(&self) -> PathBuf {
+        self.data_dir().join("settings.json")
     }
 
     /// Creates the cache directory and returns it.
@@ -132,6 +138,10 @@ mod tests {
         );
         assert_eq!(paths.cache_dir(), paths.data_dir().join("cache"));
         assert_eq!(paths.log_dir(), paths.data_dir().join("logs"));
+        assert_eq!(
+            paths.settings_file(),
+            paths.data_dir().join("settings.json")
+        );
     }
 
     #[test]

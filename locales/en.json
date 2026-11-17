@@ -9,6 +9,12 @@
   "app.device_online": "Online",
   "app.loading_devices": "Looking for devices…",
 
+  "theme.label": "Theme",
+  "theme.dark": "Dark",
+  "theme.light": "Light",
+  "theme.dark_tooltip": "Use the dark theme.",
+  "theme.light_tooltip": "Use the light theme.",
+
   "tabs.apps": "Applications",
   "tabs.device": "Device",
 

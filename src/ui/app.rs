@@ -13,11 +13,13 @@ use android_utility_core::{
 use super::apps_panel::{self, AppsAction, AppsPanel};
 use super::confirm::{self, ConfirmKind, ConfirmResponse, PendingConfirmation};
 use super::processes_panel::{self, ProcessLimit, ProcessRefresh, ProcessesAction, ProcessesPanel};
+use super::theme;
 use crate::adb::{Adb, AdbError, Device, DeviceService, DeviceState};
 use crate::commands::{self, Command, CommandEvent, LabelTarget, OperationOutcome};
 use crate::i18n::Translations;
 use crate::startup::AppPaths;
 use crate::startup::labels::LabelCache;
+use crate::startup::settings::{Settings, ThemeMode};
 
 /// Top-level application state rendered by the `egui` interface.
 pub struct AndroidUtilityApp {
@@ -43,6 +45,8 @@ pub struct AndroidUtilityApp {
     process_limit: ProcessLimit,
     loading_processes: bool,
     last_process_refresh: Option<Instant>,
+    theme: ThemeMode,
+    settings_path: Option<std::path::PathBuf>,
     status: StatusMessage,
 }
 
@@ -53,9 +57,20 @@ enum Tab {
     Device,
 }
 
+/// Semantic category of the status bar message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatusKind {
+    /// Neutral information.
+    Info,
+    /// Confirmed successful action.
+    Success,
+    /// Failed action or unavailable device.
+    Error,
+}
+
 struct StatusMessage {
     text: String,
-    is_error: bool,
+    kind: StatusKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,10 +81,19 @@ enum OperationKind {
 }
 
 impl AndroidUtilityApp {
-    pub fn new(_creation_context: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         let translations = Translations::english();
 
-        let (service, label_cache, startup_error) = match AppPaths::for_current_user()
+        let paths = AppPaths::for_current_user();
+        let settings = match &paths {
+            Ok(paths) => Settings::load(&paths.settings_file()),
+            Err(_) => Settings::default(),
+        };
+        let settings_path = paths.as_ref().ok().map(AppPaths::settings_file);
+
+        theme::apply(&creation_context.egui_ctx, settings.theme);
+
+        let (service, label_cache, startup_error) = match paths
             .and_then(|paths| paths.ensure_cache_dir())
         {
             Ok(cache_dir) => (
@@ -100,11 +124,11 @@ impl AndroidUtilityApp {
         let status = match startup_error {
             Some(text) => StatusMessage {
                 text,
-                is_error: true,
+                kind: StatusKind::Error,
             },
             None => StatusMessage {
                 text: translations.get("status.ready").to_owned(),
-                is_error: false,
+                kind: StatusKind::Info,
             },
         };
 
@@ -131,6 +155,8 @@ impl AndroidUtilityApp {
             process_limit: ProcessLimit::All,
             loading_processes: false,
             last_process_refresh: None,
+            theme: settings.theme,
+            settings_path,
             status,
         };
 
@@ -141,7 +167,14 @@ impl AndroidUtilityApp {
     fn set_info(&mut self, text: String) {
         self.status = StatusMessage {
             text,
-            is_error: false,
+            kind: StatusKind::Info,
+        };
+    }
+
+    fn set_success(&mut self, text: String) {
+        self.status = StatusMessage {
+            text,
+            kind: StatusKind::Success,
         };
     }
 
@@ -150,8 +183,25 @@ impl AndroidUtilityApp {
 
         self.status = StatusMessage {
             text,
-            is_error: true,
+            kind: StatusKind::Error,
         };
+    }
+
+    fn set_theme(&mut self, context: &egui::Context, theme_mode: ThemeMode) {
+        if self.theme == theme_mode {
+            return;
+        }
+
+        self.theme = theme_mode;
+        theme::apply(context, theme_mode);
+
+        let Some(path) = &self.settings_path else {
+            return;
+        };
+
+        if let Err(error) = (Settings { theme: theme_mode }).save(path) {
+            warn!(%error, "could not save settings");
+        }
     }
 
     fn selected_serial(&self) -> Option<&str> {
@@ -468,7 +518,7 @@ impl AndroidUtilityApp {
                                 .format("status.uninstalled_ok", &[("name", &name)]),
                         };
 
-                        self.set_info(message);
+                        self.set_success(message);
                         info!(package = %package, ?outcome, "operation succeeded");
                         self.load_apps();
                     }
@@ -589,77 +639,156 @@ impl AndroidUtilityApp {
     }
 
     fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("toolbar").show(ui, |ui| {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.heading(self.translations.get("app.title"));
-                ui.separator();
+        let mut requested_theme = None;
 
-                if self.devices.is_empty() {
-                    ui.label(self.translations.get("app.no_devices"));
-                } else {
-                    let mut selection = self.selected_device_index;
-                    let selected_text = self.selected_device_text();
+        egui::Panel::top("toolbar")
+            .show_separator_line(true)
+            .show(ui, |ui| {
+                ui.add_space(theme::size::SPACING_SM);
+                ui.horizontal(|ui| {
+                    ui.heading(self.translations.get("app.title"));
+                    ui.separator();
 
-                    egui::ComboBox::from_id_salt("device_selector")
-                        .width(260.0)
-                        .selected_text(selected_text)
-                        .show_ui(ui, |ui| {
-                            for (index, device) in self.devices.iter().enumerate() {
-                                let label = format!(
-                                    "{} · {}",
-                                    device.name(),
-                                    self.translations.get(device_state_key(device.state))
-                                );
+                    if self.devices.is_empty() {
+                        ui.label(self.translations.get("app.no_devices"));
+                    } else {
+                        let mut selection = self.selected_device_index;
+                        let selected_text = self.selected_device_text();
 
-                                ui.selectable_value(&mut selection, Some(index), label);
-                            }
-                        });
+                        egui::ComboBox::from_id_salt("device_selector")
+                            .width(theme::size::DEVICE_SELECTOR_WIDTH)
+                            .selected_text(selected_text)
+                            .show_ui(ui, |ui| {
+                                for (index, device) in self.devices.iter().enumerate() {
+                                    let label = format!(
+                                        "{} · {}",
+                                        device.name(),
+                                        self.translations.get(device_state_key(device.state))
+                                    );
 
-                    if selection != self.selected_device_index {
-                        debug!(
-                            previous = ?self.selected_device_index,
-                            selected = ?selection,
-                            "device selection changed"
-                        );
+                                    ui.selectable_value(&mut selection, Some(index), label);
+                                }
+                            });
 
-                        self.selected_device_index = selection;
-                        self.apps.clear();
-                        self.loading_apps = false;
-                        self.labels_pending = false;
-                        self.processes.clear();
-                        self.loading_processes = false;
-                        self.last_process_refresh = None;
-                        self.load_apps();
+                        if selection != self.selected_device_index {
+                            debug!(
+                                previous = ?self.selected_device_index,
+                                selected = ?selection,
+                                "device selection changed"
+                            );
+
+                            self.selected_device_index = selection;
+                            self.apps.clear();
+                            self.loading_apps = false;
+                            self.labels_pending = false;
+                            self.processes.clear();
+                            self.loading_processes = false;
+                            self.last_process_refresh = None;
+                            self.load_apps();
+                        }
                     }
-                }
 
-                if ui
-                    .add_enabled(
-                        !self.loading_devices,
-                        egui::Button::new(self.translations.get("app.refresh")),
-                    )
-                    .clicked()
-                {
-                    self.load_devices();
-                }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let palette = theme::palette(ui);
 
-                if self.loading_devices {
-                    ui.spinner();
-                }
+                        if ui
+                            .add_enabled(
+                                !self.loading_devices,
+                                theme::toned_button(
+                                    self.translations.get("app.refresh"),
+                                    theme::ButtonTone::Primary,
+                                    palette,
+                                ),
+                            )
+                            .clicked()
+                        {
+                            self.load_devices();
+                        }
+
+                        if self.loading_devices {
+                            ui.spinner();
+                        }
+
+                        ui.separator();
+
+                        let selected_is_dark = self.theme == ThemeMode::Dark;
+                        let dark_tone = if selected_is_dark {
+                            theme::ButtonTone::Primary
+                        } else {
+                            theme::ButtonTone::Neutral
+                        };
+                        let dark = theme::toned_button(
+                            self.translations.get("theme.dark"),
+                            dark_tone,
+                            palette,
+                        )
+                        .min_size(egui::vec2(64.0, theme::size::CONTROL_HEIGHT));
+
+                        if ui
+                            .add(dark)
+                            .on_hover_text(self.translations.get("theme.dark_tooltip"))
+                            .clicked()
+                        {
+                            requested_theme = Some(ThemeMode::Dark);
+                        }
+
+                        let light_tone = if selected_is_dark {
+                            theme::ButtonTone::Neutral
+                        } else {
+                            theme::ButtonTone::Primary
+                        };
+                        let light = theme::toned_button(
+                            self.translations.get("theme.light"),
+                            light_tone,
+                            palette,
+                        )
+                        .min_size(egui::vec2(64.0, theme::size::CONTROL_HEIGHT));
+
+                        if ui
+                            .add(light)
+                            .on_hover_text(self.translations.get("theme.light_tooltip"))
+                            .clicked()
+                        {
+                            requested_theme = Some(ThemeMode::Light);
+                        }
+
+                        ui.label(egui::RichText::new(self.translations.get("theme.label")));
+                    });
+                });
+                ui.add_space(theme::size::SPACING_SM);
             });
-            ui.add_space(4.0);
-        });
+
+        if let Some(theme_mode) = requested_theme {
+            self.set_theme(ui.ctx(), theme_mode);
+        }
     }
 
     fn draw_status_bar(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::bottom("status").show(ui, |ui| {
-            if self.status.is_error {
-                ui.colored_label(ui.visuals().error_fg_color, &self.status.text);
-            } else {
-                ui.label(&self.status.text);
-            }
-        });
+        egui::Panel::bottom("status")
+            .show_separator_line(true)
+            .show(ui, |ui| {
+                ui.add_space(theme::size::SPACING_XS);
+
+                match self.status.kind {
+                    StatusKind::Info => {
+                        ui.label(&self.status.text);
+                    }
+                    StatusKind::Success => {
+                        ui.colored_label(
+                            theme::palette(ui).success_text,
+                            egui::RichText::new(&self.status.text),
+                        );
+                    }
+                    StatusKind::Error => {
+                        ui.colored_label(
+                            ui.visuals().error_fg_color,
+                            egui::RichText::new(&self.status.text),
+                        );
+                    }
+                }
+
+                ui.add_space(theme::size::SPACING_XS);
+            });
     }
 
     fn show_confirmation(&mut self, context: &egui::Context) {
@@ -701,6 +830,7 @@ impl eframe::App for AndroidUtilityApp {
         let mut selected_tab = self.selected_tab;
 
         egui::CentralPanel::default().show(ui, |ui| {
+            ui.add_space(theme::size::SPACING_SM);
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut selected_tab, Tab::Apps, translations.get("tabs.apps"));
                 ui.selectable_value(
@@ -709,6 +839,7 @@ impl eframe::App for AndroidUtilityApp {
                     translations.get("tabs.device"),
                 );
             });
+            ui.add_space(theme::size::SPACING_XS);
             ui.separator();
 
             match selected_tab {
