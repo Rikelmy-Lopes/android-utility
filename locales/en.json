@@ -36,6 +36,10 @@
   "processes.time": "CPU time",
   "processes.command": "Process",
 
+  "apps.filter": "Show",
+  "apps.filter_all": "All apps",
+  "apps.filter_system": "System",
+  "apps.filter_installed": "Installed only",
   "apps.search_hint": "Search by name or package",
   "apps.loading": "Loading applications…",
   "apps.empty": "No applications found.",

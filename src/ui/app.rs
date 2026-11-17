@@ -10,7 +10,7 @@ use android_utility_core::{
     InstalledApp, PackageName, ProcessSort, ProcessUsage, sort_apps, sort_processes,
 };
 
-use super::apps_panel::{self, AppsAction, AppsPanel};
+use super::apps_panel::{self, AppsAction, AppsFilter, AppsPanel};
 use super::confirm::{self, ConfirmKind, ConfirmResponse, PendingConfirmation};
 use super::processes_panel::{self, ProcessLimit, ProcessRefresh, ProcessesAction, ProcessesPanel};
 use super::theme;
@@ -31,6 +31,7 @@ pub struct AndroidUtilityApp {
     labels: HashMap<String, Option<String>>,
     label_cache: LabelCache,
     search: String,
+    apps_filter: AppsFilter,
     receivers: Vec<Receiver<CommandEvent>>,
     busy: HashSet<PackageName>,
     loading_devices: bool,
@@ -141,6 +142,7 @@ impl AndroidUtilityApp {
             labels,
             label_cache,
             search: String::new(),
+            apps_filter: AppsFilter::All,
             receivers: Vec::new(),
             busy: HashSet::new(),
             loading_devices: false,
@@ -848,6 +850,7 @@ impl eframe::App for AndroidUtilityApp {
                         ui,
                         AppsPanel {
                             apps: &self.apps,
+                            filter: &mut self.apps_filter,
                             search: &mut self.search,
                             busy: &self.busy,
                             loading: self.loading_apps,

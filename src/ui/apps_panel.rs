@@ -8,10 +8,37 @@ use crate::i18n::Translations;
 
 use super::theme;
 
+/// Package subset selected by the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppsFilter {
+    /// Show every installed package.
+    All,
+    /// Show packages that belong to the system image.
+    System,
+    /// Show packages installed by the user, excluding system packages.
+    Installed,
+}
+
+impl AppsFilter {
+    /// Filters offered to the user.
+    pub const OPTIONS: [Self; 3] = [Self::All, Self::System, Self::Installed];
+
+    /// Returns whether `app` belongs to the selected subset.
+    pub fn matches(self, app: &InstalledApp) -> bool {
+        match self {
+            Self::All => true,
+            Self::System => app.is_system,
+            Self::Installed => !app.is_system,
+        }
+    }
+}
+
 /// Read-only state needed to render the application list.
 pub struct AppsPanel<'a> {
     /// Applications to display.
     pub apps: &'a [InstalledApp],
+    /// Package subset selected by the user.
+    pub filter: &'a mut AppsFilter,
     /// Search query edited by the user.
     pub search: &'a mut String,
     /// Packages with an operation in progress.
@@ -62,7 +89,22 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
                 .desired_width(theme::size::SEARCH_WIDTH),
         );
 
-        ui.label(translations.format("apps.count", &[("count", &state.apps.len().to_string())]));
+        ui.label(translations.get("apps.filter"));
+        egui::ComboBox::from_id_salt("apps_filter")
+            .selected_text(filter_label(translations, *state.filter))
+            .show_ui(ui, |ui| {
+                for filter in AppsFilter::OPTIONS {
+                    ui.selectable_value(state.filter, filter, filter_label(translations, filter));
+                }
+            });
+
+        let filtered_count = state
+            .apps
+            .iter()
+            .filter(|app| state.filter.matches(app))
+            .count();
+
+        ui.label(translations.format("apps.count", &[("count", &filtered_count.to_string())]));
 
         if state.loading_labels {
             ui.spinner();
@@ -105,7 +147,12 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
             || app.package.as_str().contains(&query)
     };
 
-    let visible: Vec<&InstalledApp> = state.apps.iter().filter(matches_query).collect();
+    let visible: Vec<&InstalledApp> = state
+        .apps
+        .iter()
+        .filter(|app| state.filter.matches(app))
+        .filter(matches_query)
+        .collect();
 
     if visible.is_empty() {
         ui.label(translations.get("apps.no_matches"));
@@ -235,4 +282,45 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
         );
 
     action
+}
+
+fn filter_label(translations: &Translations, filter: AppsFilter) -> &str {
+    match filter {
+        AppsFilter::All => translations.get("apps.filter_all"),
+        AppsFilter::System => translations.get("apps.filter_system"),
+        AppsFilter::Installed => translations.get("apps.filter_installed"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app(package: &str, is_system: bool) -> InstalledApp {
+        InstalledApp {
+            package: PackageName::parse(package).expect("valid package name"),
+            label: None,
+            apk_path: None,
+            is_system,
+            is_disabled: false,
+        }
+    }
+
+    #[test]
+    fn all_filter_keeps_every_application() {
+        assert!(AppsFilter::All.matches(&app("com.example", false)));
+        assert!(AppsFilter::All.matches(&app("com.android.settings", true)));
+    }
+
+    #[test]
+    fn system_filter_keeps_only_system_applications() {
+        assert!(AppsFilter::System.matches(&app("com.android.settings", true)));
+        assert!(!AppsFilter::System.matches(&app("com.example", false)));
+    }
+
+    #[test]
+    fn installed_filter_excludes_system_applications() {
+        assert!(!AppsFilter::Installed.matches(&app("com.android.settings", true)));
+        assert!(AppsFilter::Installed.matches(&app("com.example", false)));
+    }
 }
