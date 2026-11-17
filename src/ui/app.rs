@@ -7,12 +7,14 @@ use eframe::egui;
 use tracing::{debug, info, warn};
 
 use android_utility_core::{
-    InstalledApp, PackageName, ProcessSort, ProcessUsage, sort_apps, sort_processes,
+    InstalledApp, PackageName, ProcessSort, ProcessUsage, ResourceSession, SessionSummary,
+    sort_apps, sort_processes,
 };
 
 use super::apps_panel::{self, AppsAction, AppsFilter, AppsPanel};
 use super::confirm::{self, ConfirmKind, ConfirmResponse, PendingConfirmation};
 use super::processes_panel::{self, ProcessLimit, ProcessRefresh, ProcessesAction, ProcessesPanel};
+use super::session_summary;
 use super::theme;
 use crate::adb::{Adb, AdbError, Device, DeviceService, DeviceState};
 use crate::commands::{self, Command, CommandEvent, LabelTarget, OperationOutcome};
@@ -46,6 +48,8 @@ pub struct AndroidUtilityApp {
     process_limit: ProcessLimit,
     loading_processes: bool,
     last_process_refresh: Option<Instant>,
+    usage_session: ResourceSession,
+    usage_summary: Option<SessionSummary>,
     theme: ThemeMode,
     settings_path: Option<std::path::PathBuf>,
     status: StatusMessage,
@@ -157,6 +161,8 @@ impl AndroidUtilityApp {
             process_limit: ProcessLimit::All,
             loading_processes: false,
             last_process_refresh: None,
+            usage_session: ResourceSession::default(),
+            usage_summary: None,
             theme: settings.theme,
             settings_path,
             status,
@@ -297,6 +303,34 @@ impl AndroidUtilityApp {
             self.service.clone(),
             Command::LoadProcesses { serial },
         ));
+    }
+
+    fn start_usage_session(&mut self) {
+        self.usage_session.start();
+        self.usage_summary = None;
+        info!("resource usage session started");
+        self.set_info(self.translations.get("status.recording_started").to_owned());
+    }
+
+    fn stop_usage_session(&mut self) {
+        if let Some(summary) = self.usage_session.finish() {
+            info!(
+                updates = summary.updates,
+                elapsed_ms = summary.elapsed.as_millis(),
+                "resource usage session stopped"
+            );
+            self.usage_summary = Some(summary);
+            self.set_info(self.translations.get("status.recording_stopped").to_owned());
+        }
+    }
+
+    fn cancel_usage_session(&mut self) {
+        if self.usage_session.is_active() {
+            debug!("resource usage session cancelled");
+            self.usage_session.cancel();
+        }
+
+        self.usage_summary = None;
     }
 
     fn load_missing_labels(&mut self) {
@@ -560,6 +594,7 @@ impl AndroidUtilityApp {
                     self.processes.clear();
                     self.loading_processes = false;
                     self.last_process_refresh = None;
+                    self.cancel_usage_session();
                 }
 
                 self.selected_device_index = desired_index;
@@ -584,6 +619,7 @@ impl AndroidUtilityApp {
                 self.processes.clear();
                 self.loading_processes = false;
                 self.last_process_refresh = None;
+                self.cancel_usage_session();
                 self.set_error(self.error_text(&error));
             }
         }
@@ -631,6 +667,11 @@ impl AndroidUtilityApp {
         match result {
             Ok(mut processes) => {
                 sort_processes(&mut processes, self.process_sort);
+
+                if self.usage_session.is_active() {
+                    self.usage_session.record(&processes);
+                }
+
                 debug!(processes = processes.len(), "process table loaded");
                 self.processes = processes;
             }
@@ -686,6 +727,7 @@ impl AndroidUtilityApp {
                             self.processes.clear();
                             self.loading_processes = false;
                             self.last_process_refresh = None;
+                            self.cancel_usage_session();
                             self.load_apps();
                         }
                     }
@@ -815,6 +857,18 @@ impl AndroidUtilityApp {
             None => {}
         }
     }
+
+    fn show_usage_summary(&mut self, context: &egui::Context) {
+        let Some(summary) = self.usage_summary.as_ref() else {
+            return;
+        };
+
+        let dismissed = session_summary::show(context, &self.translations, summary);
+
+        if dismissed {
+            self.usage_summary = None;
+        }
+    }
 }
 
 impl eframe::App for AndroidUtilityApp {
@@ -869,6 +923,8 @@ impl eframe::App for AndroidUtilityApp {
                             custom_refresh_ms: &mut self.process_custom_refresh_ms,
                             limit: &mut self.process_limit,
                             loading: self.loading_processes,
+                            recording: self.usage_session.is_active(),
+                            recorded_updates: self.usage_session.updates(),
                             translations,
                         },
                     );
@@ -877,6 +933,10 @@ impl eframe::App for AndroidUtilityApp {
         });
 
         self.selected_tab = selected_tab;
+
+        if selected_tab != Tab::Device {
+            self.cancel_usage_session();
+        }
 
         if self.process_sort != previous_sort {
             sort_processes(&mut self.processes, self.process_sort);
@@ -890,8 +950,11 @@ impl eframe::App for AndroidUtilityApp {
             self.handle_apps_action(action);
         }
 
-        if process_action == Some(ProcessesAction::Refresh) {
-            self.load_processes();
+        match process_action {
+            Some(ProcessesAction::Refresh) => self.load_processes(),
+            Some(ProcessesAction::StartRecording) => self.start_usage_session(),
+            Some(ProcessesAction::StopRecording) => self.stop_usage_session(),
+            None => {}
         }
 
         let process_interval = Duration::from_millis(
@@ -906,6 +969,7 @@ impl eframe::App for AndroidUtilityApp {
         }
 
         self.show_confirmation(ui.ctx());
+        self.show_usage_summary(ui.ctx());
 
         let repaint_delay = if selected_tab == Tab::Device {
             let wait = self

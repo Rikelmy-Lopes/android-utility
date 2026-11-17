@@ -82,6 +82,10 @@ pub struct ProcessesPanel<'a> {
     pub limit: &'a mut ProcessLimit,
     /// Whether a process snapshot is being read.
     pub loading: bool,
+    /// Whether a resource-usage session is being recorded.
+    pub recording: bool,
+    /// Number of samples recorded in the active session.
+    pub recorded_updates: u64,
     /// Translation source.
     pub translations: &'a Translations,
 }
@@ -91,6 +95,10 @@ pub struct ProcessesPanel<'a> {
 pub enum ProcessesAction {
     /// Read a new process snapshot now.
     Refresh,
+    /// Start recording resource usage.
+    StartRecording,
+    /// Stop recording and show the summary.
+    StopRecording,
 }
 
 /// Renders process resource usage and returns the requested action.
@@ -164,6 +172,41 @@ pub fn show(ui: &mut egui::Ui, state: ProcessesPanel<'_>) -> Option<ProcessesAct
 
         if state.loading {
             ui.spinner();
+        }
+
+        ui.separator();
+
+        let recording_tone = if state.recording {
+            theme::ButtonTone::Warning
+        } else {
+            theme::ButtonTone::Primary
+        };
+        let recording_label = if state.recording {
+            translations.get("processes.stop_recording")
+        } else {
+            translations.get("processes.start_recording")
+        };
+
+        let button = theme::toned_button(recording_label, recording_tone, palette);
+
+        if ui
+            .add(button)
+            .on_hover_text(translations.get("processes.recording_tooltip"))
+            .clicked()
+        {
+            action = Some(if state.recording {
+                ProcessesAction::StopRecording
+            } else {
+                ProcessesAction::StartRecording
+            });
+        }
+
+        if state.recording {
+            let count = state.recorded_updates.to_string();
+            ui.colored_label(
+                palette.warning_text,
+                translations.format("processes.recording", &[("count", &count)]),
+            );
         }
     });
 
@@ -302,7 +345,7 @@ fn visible_processes(processes: &[ProcessUsage], limit: ProcessLimit) -> &[Proce
     }
 }
 
-fn format_memory(bytes: u64) -> String {
+pub(super) fn format_memory(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = KIB * 1024.0;
     const GIB: f64 = MIB * 1024.0;

@@ -37,6 +37,12 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Semantic action colors: red for uninstall and errors, amber for warnings, green for enable and success confirmations.
 - [x] Dark and light themes with a toolbar theme switcher.
 - [x] Selected theme persisted in `settings.json` below the per-user application data directory.
+- [x] Device tab session recording that tracks per-process CPU and resident memory samples on every process refresh tick.
+- [x] Start and stop recording controls that reset counters, show recorded update count, and stop collection immediately.
+- [x] Resource usage summary dialog with elapsed time, update count, and per-process average CPU and memory for the first 10 processes in the selected sort order.
+- [x] Samples follow the current leading processes; when the tracked set is full, the least recently sampled process is replaced.
+- [x] Per-process averages safely handle processes with no samples and sessions stopped without any update.
+- [x] Active recording cancelled when leaving the Device tab or switching devices.
 
 ## In Progress
 
