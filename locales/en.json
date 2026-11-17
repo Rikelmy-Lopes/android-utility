@@ -54,8 +54,7 @@
   "status.operation_started": "Applying change to {package}…",
   "status.disabled_ok": "{name} disabled.",
   "status.enabled_ok": "{name} enabled.",
-  "status.uninstalled_ok": "{name} uninstalled.",
-  "status.removed_for_user": "{name} removed for the current user only. The system copy may remain.",
+  "status.uninstalled_ok": "{name} removed for the current user.",
 
   "error.generic": "Operation failed.",
   "error.adb_not_found": "ADB was not found. Install Android platform tools and add them to PATH.",
@@ -66,7 +65,7 @@
   "confirm.disable_title": "Disable application",
   "confirm.uninstall_title": "Uninstall application",
   "confirm.disable_message": "Disable {name} ({package})?",
-  "confirm.uninstall_message": "Uninstall {name} ({package})? Application data will be removed.",
+  "confirm.uninstall_message": "Remove {name} ({package}) for the current user? This user's application data will be deleted.",
   "confirm.system_warning": "Warning: this is a system application. Removing it may brick the device.",
   "confirm.cancel": "Cancel",
   "confirm.confirm": "Confirm",

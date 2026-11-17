@@ -43,16 +43,11 @@ pub trait DeviceService: Send + Sync {
     /// Disables a package for the current user.
     fn disable_app(&self, serial: &str, package: &PackageName) -> Result<(), AdbError>;
 
-    /// Re-enables a disabled package.
+    /// Re-enables a package for the current user.
     fn enable_app(&self, serial: &str, package: &PackageName) -> Result<(), AdbError>;
 
-    /// Uninstalls a package, optionally keeping data for the current user only.
-    fn uninstall_app(
-        &self,
-        serial: &str,
-        package: &PackageName,
-        user_only: bool,
-    ) -> Result<(), AdbError>;
+    /// Uninstalls a package for the current user only.
+    fn uninstall_app(&self, serial: &str, package: &PackageName) -> Result<(), AdbError>;
 }
 
 /// Connection state of a device reported by ADB.
@@ -305,7 +300,7 @@ impl DeviceService for Adb {
     fn enable_app(&self, serial: &str, package: &PackageName) -> Result<(), AdbError> {
         self.ensure_device_ready(serial)?;
 
-        let output = self.shell(serial, &["pm", "enable", package.as_str()])?;
+        let output = self.shell(serial, &["pm", "enable", "--user", "0", package.as_str()])?;
 
         match pm_failure(&output) {
             Some(_) => Err(pm_error(&output)),
@@ -313,21 +308,13 @@ impl DeviceService for Adb {
         }
     }
 
-    fn uninstall_app(
-        &self,
-        serial: &str,
-        package: &PackageName,
-        user_only: bool,
-    ) -> Result<(), AdbError> {
+    fn uninstall_app(&self, serial: &str, package: &PackageName) -> Result<(), AdbError> {
         self.ensure_device_ready(serial)?;
 
-        let mut command = vec!["pm", "uninstall"];
-        if user_only {
-            command.extend(["--user", "0"]);
-        }
-        command.push(package.as_str());
-
-        let output = self.shell(serial, &command)?;
+        let output = self.shell(
+            serial,
+            &["pm", "uninstall", "--user", "0", package.as_str()],
+        )?;
 
         if uninstall_succeeded(&output) {
             Ok(())

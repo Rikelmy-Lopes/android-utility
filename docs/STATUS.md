@@ -17,7 +17,7 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Installed-application listing with package name, system flag, and disabled state.
 - [x] Application label resolution by reading the base APK manifest on a background thread.
 - [x] Disable, enable, and uninstall actions with confirmation dialogs.
-- [x] Uninstall fallback to current-user removal when full uninstall fails.
+- [x] Uninstall, disable, and enable actions scoped to the current user only.
 - [x] Warning that removing a system application may brick the device.
 - [x] Application names loaded on demand; the default listing shows package names only.
 - [x] Per-row action to resolve a single application name without loading all of them.

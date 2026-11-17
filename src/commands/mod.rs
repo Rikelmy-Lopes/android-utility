@@ -83,10 +83,8 @@ pub enum OperationOutcome {
     Disabled,
     /// The package is enabled.
     Enabled,
-    /// The package was uninstalled completely.
+    /// The package was uninstalled for the current user.
     Uninstalled,
-    /// The package was removed for the current user only.
-    RemovedForCurrentUser,
 }
 
 /// Message sent from a command thread back to the interface.
@@ -192,26 +190,12 @@ pub fn execute(service: &dyn DeviceService, command: Command, emit: &mut dyn FnM
             emit(CommandEvent::Operation { package, outcome });
         }
         Command::Uninstall { serial, package } => {
-            let outcome = uninstall_with_fallback(service, &serial, &package);
+            let outcome = service
+                .uninstall_app(&serial, &package)
+                .map(|()| OperationOutcome::Uninstalled);
 
             emit(CommandEvent::Operation { package, outcome });
         }
-    }
-}
-
-fn uninstall_with_fallback(
-    service: &dyn DeviceService,
-    serial: &str,
-    package: &PackageName,
-) -> Result<OperationOutcome, AdbError> {
-    match service.uninstall_app(serial, package, false) {
-        Ok(()) => Ok(OperationOutcome::Uninstalled),
-        Err(full_uninstall_error) => match service.uninstall_app(serial, package, true) {
-            Ok(()) => Ok(OperationOutcome::RemovedForCurrentUser),
-            Err(user_uninstall_error) => Err(AdbError::command_failed(format!(
-                "{full_uninstall_error}; {user_uninstall_error}"
-            ))),
-        },
     }
 }
 
@@ -306,22 +290,13 @@ mod tests {
             }
         }
 
-        fn uninstall_app(
-            &self,
-            serial: &str,
-            package: &PackageName,
-            user_only: bool,
-        ) -> Result<(), AdbError> {
-            self.record(format!("uninstall({serial},{package},{user_only})"));
+        fn uninstall_app(&self, serial: &str, package: &PackageName) -> Result<(), AdbError> {
+            self.record(format!("uninstall({serial},{package})"));
             let mut results = self.uninstall_results.lock().unwrap();
             if results.is_empty() {
                 return Ok(());
             }
-            let result = results.remove(0);
-            match result {
-                Ok(()) => Ok(()),
-                Err(error) => Err(error),
-            }
+            results.remove(0)
         }
     }
 
@@ -462,16 +437,8 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_falls_back_to_current_user() {
-        let service = FakeService {
-            uninstall_results: Mutex::new(vec![
-                Err(AdbError::command_failed(
-                    "Failure [DELETE_FAILED_INTERNAL_ERROR]",
-                )),
-                Ok(()),
-            ]),
-            ..Default::default()
-        };
+    fn uninstall_targets_the_current_user_only() {
+        let service = FakeService::default();
 
         let events = collect(
             &service,
@@ -484,26 +451,20 @@ mod tests {
         assert!(matches!(
             &events[0],
             CommandEvent::Operation {
-                outcome: Ok(OperationOutcome::RemovedForCurrentUser),
+                outcome: Ok(OperationOutcome::Uninstalled),
                 ..
             }
         ));
         assert_eq!(
             service.calls.lock().unwrap().as_slice(),
-            [
-                "uninstall(serial,com.example,false)",
-                "uninstall(serial,com.example,true)"
-            ]
+            ["uninstall(serial,com.example)"]
         );
     }
 
     #[test]
-    fn uninstall_reports_both_failures() {
+    fn uninstall_reports_the_device_failure() {
         let service = FakeService {
-            uninstall_results: Mutex::new(vec![
-                Err(AdbError::command_failed("first")),
-                Err(AdbError::command_failed("second")),
-            ]),
+            uninstall_results: Mutex::new(vec![Err(AdbError::command_failed("failure"))]),
             ..Default::default()
         };
 
@@ -520,8 +481,7 @@ mod tests {
                 outcome: Err(AdbError::CommandFailed { message }),
                 ..
             } => {
-                assert!(message.contains("first"));
-                assert!(message.contains("second"));
+                assert!(message.contains("failure"));
             }
             other => panic!("unexpected event: {other:?}"),
         }

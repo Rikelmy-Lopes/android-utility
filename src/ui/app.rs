@@ -466,9 +466,6 @@ impl AndroidUtilityApp {
                             OperationOutcome::Uninstalled => self
                                 .translations
                                 .format("status.uninstalled_ok", &[("name", &name)]),
-                            OperationOutcome::RemovedForCurrentUser => self
-                                .translations
-                                .format("status.removed_for_user", &[("name", &name)]),
                         };
 
                         self.set_info(message);
