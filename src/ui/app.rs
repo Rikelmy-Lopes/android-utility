@@ -892,7 +892,7 @@ impl eframe::App for AndroidUtilityApp {
                 ui.selectable_value(
                     &mut selected_tab,
                     Tab::Device,
-                    translations.get("tabs.device"),
+                    translations.get("tabs.process"),
                 );
             });
             ui.add_space(theme::size::SPACING_XS);

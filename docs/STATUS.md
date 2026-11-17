@@ -27,9 +27,9 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Virtualized application list with fixed-height rows to keep window resizing responsive.
 - [x] Application list filter to show all apps, system apps only, or user-installed apps only.
 - [x] Interface split into tabs: application list and device tools.
-- [x] Device tab showing processes ordered by CPU or memory, with configurable refresh interval.
-- [x] Device tab refresh interval selectable from presets or a custom value in milliseconds, minimum 100 ms.
-- [x] Device tab option to limit the process list to the first 5, 10, or 20 entries.
+- [x] Process tab showing processes ordered by CPU or memory, with configurable refresh interval.
+- [x] Process tab refresh interval selectable from presets or a custom value in milliseconds, minimum 100 ms.
+- [x] Process tab option to limit the process list to the first 5, 10, or 20 entries.
 - [x] Diagnostic logging to a daily per-user log file, with terminal output in debug builds.
 - [x] Logged ADB command lines, exit codes, durations, timeouts, failures, and application command events.
 - [x] Centralized design tokens for palettes, semantic colors, font sizes, spacing, radii, and control sizes in `src/ui/theme.rs`.
@@ -37,12 +37,14 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Semantic action colors: red for uninstall and errors, amber for warnings, green for enable and success confirmations.
 - [x] Dark and light themes with a toolbar theme switcher.
 - [x] Selected theme persisted in `settings.json` below the per-user application data directory.
-- [x] Device tab session recording that tracks per-process CPU and resident memory samples on every process refresh tick.
+- [x] Process tab session recording that tracks per-process CPU and resident memory samples on every process refresh tick.
 - [x] Start and stop recording controls that reset counters, show recorded update count, and stop collection immediately.
 - [x] Resource usage summary dialog with elapsed time, update count, and per-process average CPU and memory for the first 10 processes in the selected sort order.
 - [x] Samples follow the current leading processes; when the tracked set is full, the least recently sampled process is replaced.
 - [x] Per-process averages safely handle processes with no samples and sessions stopped without any update.
-- [x] Active recording cancelled when leaving the Device tab or switching devices.
+- [x] Active recording cancelled when leaving the Process tab or switching devices.
+- [x] Process tab label renamed from "Device" and a fixed spinner slot keeps the toolbar controls from shifting while loading.
+- [x] Resource usage summary dialog widths the CPU and memory columns from the measured header and value text, grows up to the window width, and never clips those columns.
 
 ## In Progress
 

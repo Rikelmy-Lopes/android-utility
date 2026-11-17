@@ -16,7 +16,7 @@
   "theme.light_tooltip": "Use the light theme.",
 
   "tabs.apps": "Applications",
-  "tabs.device": "Device",
+  "tabs.process": "Process",
 
   "processes.sort": "Sort by",
   "processes.sort_cpu": "CPU",

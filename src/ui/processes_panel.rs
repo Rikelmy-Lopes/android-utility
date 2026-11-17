@@ -170,9 +170,8 @@ pub fn show(ui: &mut egui::Ui, state: ProcessesPanel<'_>) -> Option<ProcessesAct
             action = Some(ProcessesAction::Refresh);
         }
 
-        if state.loading {
-            ui.spinner();
-        }
+        // Hidden spinner still reserves its slot so the toolbar does not shift.
+        ui.add_visible(state.loading, egui::Spinner::new());
 
         ui.separator();
 
