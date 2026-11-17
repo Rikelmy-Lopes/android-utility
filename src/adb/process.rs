@@ -46,20 +46,40 @@ pub fn run(
     arguments: &[String],
     timeout: Duration,
 ) -> Result<ProcessOutput, AdbError> {
-    let mut child = Command::new(program)
+    let command_line = format_command(program, arguments);
+    tracing::debug!(
+        command = %command_line,
+        timeout_ms = timeout.as_millis() as u64,
+        "starting process"
+    );
+
+    let started = Instant::now();
+
+    let mut child = match Command::new(program)
         .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| match error.kind() {
-            std::io::ErrorKind::NotFound => AdbError::AdbNotFound {
-                program: program.to_owned(),
-            },
-            _ => AdbError::Spawn {
-                message: error.to_string(),
-            },
-        })?;
+    {
+        Ok(child) => child,
+        Err(error) => {
+            tracing::error!(
+                command = %command_line,
+                %error,
+                "process could not be started"
+            );
+
+            return Err(match error.kind() {
+                std::io::ErrorKind::NotFound => AdbError::AdbNotFound {
+                    program: program.to_owned(),
+                },
+                _ => AdbError::Spawn {
+                    message: error.to_string(),
+                },
+            });
+        }
+    };
 
     let stdout_reader = child.stdout.take().map(spawn_reader);
     let stderr_reader = child.stderr.take().map(spawn_reader);
@@ -87,17 +107,80 @@ pub fn run(
     let stderr = join_reader(stderr_reader);
 
     if timed_out {
+        tracing::warn!(
+            command = %command_line,
+            timeout_secs = timeout.as_secs(),
+            "process timed out"
+        );
+
         return Err(AdbError::Timeout {
             seconds: timeout.as_secs(),
         });
     }
 
-    Ok(ProcessOutput {
+    let output = ProcessOutput {
         code: status.and_then(|status| status.code()),
         stdout,
         stderr,
         timed_out,
-    })
+    };
+
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+
+    if output.succeeded() {
+        tracing::debug!(
+            command = %command_line,
+            exit_code = ?output.code,
+            elapsed_ms,
+            "process finished"
+        );
+    } else {
+        tracing::warn!(
+            command = %command_line,
+            exit_code = ?output.code,
+            elapsed_ms,
+            stderr = %preview(&output.stderr),
+            "process failed"
+        );
+    }
+
+    Ok(output)
+}
+
+/// Formats a process invocation for a log record.
+fn format_command(program: &str, arguments: &[String]) -> String {
+    let mut command = String::from(program);
+
+    for argument in arguments {
+        command.push(' ');
+
+        if argument.is_empty() {
+            command.push_str("\"\"");
+        } else if argument.chars().any(char::is_whitespace) {
+            command.push('"');
+            command.push_str(argument);
+            command.push('"');
+        } else {
+            command.push_str(argument);
+        }
+    }
+
+    command
+}
+
+/// Returns a bounded, trimmed excerpt of diagnostic output.
+fn preview(text: &str) -> String {
+    const MAX_CHARS: usize = 500;
+
+    let trimmed = text.trim();
+
+    if trimmed.chars().count() <= MAX_CHARS {
+        return trimmed.to_owned();
+    }
+
+    let mut excerpt: String = trimmed.chars().take(MAX_CHARS).collect();
+    excerpt.push('…');
+    excerpt
 }
 
 fn spawn_reader<R>(mut reader: R) -> thread::JoinHandle<String>
@@ -115,4 +198,40 @@ fn join_reader(handle: Option<thread::JoinHandle<String>>) -> String {
     handle
         .and_then(|handle| handle.join().ok())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn arguments(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    #[test]
+    fn formats_command_with_quoted_whitespace_arguments() {
+        assert_eq!(
+            format_command("adb", &arguments(&["-s", "serial", "shell", "pm list"])),
+            "adb -s serial shell \"pm list\""
+        );
+    }
+
+    #[test]
+    fn formats_empty_argument_as_quoted_pair() {
+        assert_eq!(format_command("adb", &arguments(&[""])), "adb \"\"");
+    }
+
+    #[test]
+    fn keeps_short_diagnostics_untouched() {
+        assert_eq!(preview("  failure  "), "failure");
+    }
+
+    #[test]
+    fn bounds_long_diagnostics() {
+        let text = "x".repeat(600);
+        let excerpt = preview(&text);
+
+        assert_eq!(excerpt.chars().count(), 501);
+        assert!(excerpt.ends_with('…'));
+    }
 }

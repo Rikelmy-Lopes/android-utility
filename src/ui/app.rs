@@ -4,6 +4,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
+use tracing::{debug, info, warn};
 
 use android_utility_core::{
     InstalledApp, PackageName, ProcessSort, ProcessUsage, sort_apps, sort_processes,
@@ -76,13 +77,18 @@ impl AndroidUtilityApp {
                 LabelCache::load(&cache_dir),
                 None,
             ),
-            Err(error) => (
-                Arc::new(Adb::new()) as Arc<dyn DeviceService>,
-                LabelCache::disabled(),
-                Some(
-                    translations.format("error.cache_directory", &[("error", &error.to_string())]),
-                ),
-            ),
+            Err(error) => {
+                tracing::warn!(%error, "cache directory unavailable");
+
+                (
+                    Arc::new(Adb::new()) as Arc<dyn DeviceService>,
+                    LabelCache::disabled(),
+                    Some(
+                        translations
+                            .format("error.cache_directory", &[("error", &error.to_string())]),
+                    ),
+                )
+            }
         };
 
         let labels = label_cache
@@ -140,6 +146,8 @@ impl AndroidUtilityApp {
     }
 
     fn set_error(&mut self, text: String) {
+        warn!(message = %text, "operation failed");
+
         self.status = StatusMessage {
             text,
             is_error: true,
@@ -314,6 +322,12 @@ impl AndroidUtilityApp {
         }
 
         self.busy.insert(package.clone());
+        info!(
+            operation = ?kind,
+            serial = %serial,
+            package = %package,
+            "starting operation"
+        );
         self.set_info(
             self.translations
                 .format("status.operation_started", &[("package", package.as_str())]),
@@ -458,6 +472,7 @@ impl AndroidUtilityApp {
                         };
 
                         self.set_info(message);
+                        info!(package = %package, ?outcome, "operation succeeded");
                         self.load_apps();
                     }
                     Err(error) => {
@@ -500,6 +515,12 @@ impl AndroidUtilityApp {
 
                 self.selected_device_index = desired_index;
 
+                debug!(
+                    device_count = self.devices.len(),
+                    serial = self.selected_serial().unwrap_or("none"),
+                    "device list updated"
+                );
+
                 if desired_index.is_some() {
                     self.set_info(self.translations.get("status.devices_loaded").to_owned());
                     self.load_apps();
@@ -538,6 +559,7 @@ impl AndroidUtilityApp {
                 self.apps = apps;
 
                 let count = self.apps.len().to_string();
+                debug!(apps = self.apps.len(), "applications loaded");
                 self.set_info(
                     self.translations
                         .format("status.apps_loaded", &[("count", &count)]),
@@ -560,6 +582,7 @@ impl AndroidUtilityApp {
         match result {
             Ok(mut processes) => {
                 sort_processes(&mut processes, self.process_sort);
+                debug!(processes = processes.len(), "process table loaded");
                 self.processes = processes;
             }
             Err(error) => {
@@ -597,6 +620,12 @@ impl AndroidUtilityApp {
                         });
 
                     if selection != self.selected_device_index {
+                        debug!(
+                            previous = ?self.selected_device_index,
+                            selected = ?selection,
+                            "device selection changed"
+                        );
+
                         self.selected_device_index = selection;
                         self.apps.clear();
                         self.loading_apps = false;

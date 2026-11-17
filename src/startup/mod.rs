@@ -40,9 +40,23 @@ impl AppPaths {
         self.data_dir().join("cache")
     }
 
+    /// Directory for diagnostic log files.
+    pub fn log_dir(&self) -> PathBuf {
+        self.data_dir().join("logs")
+    }
+
     /// Creates the cache directory and returns it.
     pub fn ensure_cache_dir(&self) -> Result<PathBuf, PathError> {
         let directory = self.cache_dir();
+        fs::create_dir_all(&directory).map_err(|error| PathError::Io {
+            message: error.to_string(),
+        })?;
+        Ok(directory)
+    }
+
+    /// Creates the log directory and returns it.
+    pub fn ensure_log_dir(&self) -> Result<PathBuf, PathError> {
+        let directory = self.log_dir();
         fs::create_dir_all(&directory).map_err(|error| PathError::Io {
             message: error.to_string(),
         })?;
@@ -117,6 +131,7 @@ mod tests {
             Path::new("/base").join(APPLICATION_DIRECTORY)
         );
         assert_eq!(paths.cache_dir(), paths.data_dir().join("cache"));
+        assert_eq!(paths.log_dir(), paths.data_dir().join("logs"));
     }
 
     #[test]

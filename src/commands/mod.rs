@@ -61,6 +61,21 @@ pub enum Command {
     },
 }
 
+impl Command {
+    /// Stable identifier used in logs.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::LoadDevices => "devices.load",
+            Self::LoadApps { .. } => "apps.load",
+            Self::LoadProcesses { .. } => "processes.load",
+            Self::LoadLabels { .. } => "labels.load",
+            Self::Disable { .. } => "apps.disable",
+            Self::Enable { .. } => "apps.enable",
+            Self::Uninstall { .. } => "apps.uninstall",
+        }
+    }
+}
+
 /// Result of a completed state-changing operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationOutcome {
@@ -131,6 +146,12 @@ pub fn spawn(service: Arc<dyn DeviceService>, command: Command) -> mpsc::Receive
 
 /// Runs a command and forwards every produced event to `emit`.
 pub fn execute(service: &dyn DeviceService, command: Command, emit: &mut dyn FnMut(CommandEvent)) {
+    tracing::debug!(
+        command = command.name(),
+        details = ?command,
+        "executing command"
+    );
+
     match command {
         Command::LoadDevices => {
             emit(CommandEvent::Devices(service.devices()));
@@ -312,6 +333,33 @@ mod tests {
         let mut events = Vec::new();
         execute(service, command, &mut |event| events.push(event));
         events
+    }
+
+    #[test]
+    fn exposes_stable_command_identifiers() {
+        assert_eq!(Command::LoadDevices.name(), "devices.load");
+        assert_eq!(
+            Command::LoadApps {
+                serial: "serial".to_owned()
+            }
+            .name(),
+            "apps.load"
+        );
+        assert_eq!(
+            Command::LoadProcesses {
+                serial: "serial".to_owned()
+            }
+            .name(),
+            "processes.load"
+        );
+        assert_eq!(
+            Command::Disable {
+                serial: "serial".to_owned(),
+                package: package()
+            }
+            .name(),
+            "apps.disable"
+        );
     }
 
     #[test]

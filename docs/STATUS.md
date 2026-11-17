@@ -29,6 +29,8 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Device tab showing processes ordered by CPU or memory, with configurable refresh interval.
 - [x] Device tab refresh interval selectable from presets or a custom value in milliseconds, minimum 100 ms.
 - [x] Device tab option to limit the process list to the first 5, 10, or 20 entries.
+- [x] Diagnostic logging to a daily per-user log file, with terminal output in debug builds.
+- [x] Logged ADB command lines, exit codes, durations, timeouts, failures, and application command events.
 
 ## In Progress
 
@@ -39,5 +41,5 @@ Current implementation status of Android Utility. Read this file before starting
 - [ ] Application icon extraction and display.
 - [ ] Configurable ADB executable path (currently resolved from `PATH`).
 - [ ] Device information and analysis features beyond the application list.
-- [ ] Application configuration, logging, and theme persistence.
+- [ ] Application configuration and theme persistence.
 - [ ] Verify Linux build and document platform prerequisites.
