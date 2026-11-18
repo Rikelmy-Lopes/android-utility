@@ -172,6 +172,19 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
         return action;
     }
 
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), theme::size::CONTROL_HEIGHT),
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| {
+            ui.add_space(theme::size::ROW_PADDING);
+            column_header(ui, translations.get("optimization.column_doze"));
+            ui.add_space(theme::size::SPACING_XS);
+            column_header(ui, translations.get("optimization.column_background"));
+        },
+    );
+
+    ui.add_space(theme::size::SPACING_XS);
+
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show_rows(
@@ -211,106 +224,109 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
                                     ui.add_space(theme::size::ROW_PADDING);
 
                                     let is_whitelisted = state.whitelist.contains_key(&app.package);
-                                    let (label, tone, tooltip) = if is_whitelisted {
-                                        (
-                                            "optimization.unignore",
-                                            theme::ButtonTone::Warning,
-                                            "optimization.unignore_tooltip",
-                                        )
-                                    } else {
-                                        (
-                                            "optimization.ignore",
-                                            theme::ButtonTone::Primary,
-                                            "optimization.ignore_tooltip",
-                                        )
-                                    };
+                                    let (doze_label, doze_tone, doze_tooltip, doze_target) =
+                                        if !state.whitelist_loaded {
+                                            (
+                                                "optimization.doze_unknown",
+                                                theme::ButtonTone::Neutral,
+                                                "optimization.doze_unknown_tooltip",
+                                                None,
+                                            )
+                                        } else if is_whitelisted {
+                                            (
+                                                "optimization.doze_ignore",
+                                                theme::ButtonTone::Success,
+                                                "optimization.doze_not_ignore_tooltip",
+                                                Some(false),
+                                            )
+                                        } else {
+                                            (
+                                                "optimization.doze_not_ignore",
+                                                theme::ButtonTone::Neutral,
+                                                "optimization.doze_ignore_tooltip",
+                                                Some(true),
+                                            )
+                                        };
 
-                                    let button =
-                                        theme::toned_button(translations.get(label), tone, palette)
-                                            .min_size(egui::vec2(
-                                                theme::size::BUTTON_WIDTH_COMPACT,
-                                                theme::size::CONTROL_HEIGHT,
-                                            ));
+                                    let doze_button = theme::toned_button(
+                                        translations.get(doze_label),
+                                        doze_tone,
+                                        palette,
+                                    )
+                                    .min_size(egui::vec2(
+                                        theme::size::BUTTON_WIDTH,
+                                        theme::size::CONTROL_HEIGHT,
+                                    ));
 
                                     if ui
                                         .add_enabled(
-                                            state.whitelist_loaded
+                                            doze_target.is_some()
                                                 && !state.busy.contains(&app.package),
-                                            button,
+                                            doze_button,
                                         )
-                                        .on_hover_text(translations.get(tooltip))
+                                        .on_hover_text(translations.get(doze_tooltip))
                                         .clicked()
+                                        && let Some(whitelisted) = doze_target
                                     {
                                         action = Some(OptimizationAction::SetWhitelisted {
                                             package: app.package.clone(),
-                                            whitelisted: !is_whitelisted,
+                                            whitelisted,
                                         });
                                     }
 
+                                    ui.add_space(theme::size::SPACING_XS);
+
                                     let background = state.background.get(&app.package).copied();
-                                    let (status_key, status_color) = match background {
+                                    let (
+                                        background_label,
+                                        background_tone,
+                                        background_tooltip,
+                                        target,
+                                    ) = match background {
                                         Some(BackgroundExecution::Allowed) => (
                                             "optimization.background_allowed",
-                                            palette.success_text,
+                                            theme::ButtonTone::Success,
+                                            "optimization.background_deny_tooltip",
+                                            Some(BackgroundExecution::Ignored),
                                         ),
                                         Some(BackgroundExecution::Ignored) => (
-                                            "optimization.background_ignored",
-                                            palette.warning_text,
+                                            "optimization.background_denied",
+                                            theme::ButtonTone::Warning,
+                                            "optimization.background_allow_tooltip",
+                                            Some(BackgroundExecution::Allowed),
                                         ),
                                         None => (
                                             "optimization.background_unknown",
-                                            palette.text_secondary,
+                                            theme::ButtonTone::Neutral,
+                                            "optimization.background_unknown_tooltip",
+                                            None,
                                         ),
                                     };
 
-                                    let target = match background {
-                                        Some(BackgroundExecution::Allowed) => Some((
-                                            BackgroundExecution::Ignored,
-                                            "optimization.background_ignore",
-                                            "optimization.background_ignore_tooltip",
-                                            theme::ButtonTone::Warning,
-                                        )),
-                                        Some(BackgroundExecution::Ignored) => Some((
-                                            BackgroundExecution::Allowed,
-                                            "optimization.background_allow",
-                                            "optimization.background_allow_tooltip",
-                                            theme::ButtonTone::Primary,
-                                        )),
-                                        None => None,
-                                    };
+                                    let background_button = theme::toned_button(
+                                        translations.get(background_label),
+                                        background_tone,
+                                        palette,
+                                    )
+                                    .min_size(egui::vec2(
+                                        theme::size::BUTTON_WIDTH,
+                                        theme::size::CONTROL_HEIGHT,
+                                    ));
 
-                                    if let Some((policy, label, tooltip, tone)) = target {
-                                        let policy_button = theme::toned_button(
-                                            translations.get(label),
-                                            tone,
-                                            palette,
+                                    if ui
+                                        .add_enabled(
+                                            target.is_some() && !state.busy.contains(&app.package),
+                                            background_button,
                                         )
-                                        .min_size(egui::vec2(
-                                            theme::size::BUTTON_WIDTH_COMPACT,
-                                            theme::size::CONTROL_HEIGHT,
-                                        ));
-
-                                        if ui
-                                            .add_enabled(
-                                                !state.busy.contains(&app.package),
-                                                policy_button,
-                                            )
-                                            .on_hover_text(translations.get(tooltip))
-                                            .clicked()
-                                        {
-                                            action =
-                                                Some(OptimizationAction::SetBackgroundExecution {
-                                                    package: app.package.clone(),
-                                                    policy,
-                                                });
-                                        }
+                                        .on_hover_text(translations.get(background_tooltip))
+                                        .clicked()
+                                        && let Some(policy) = target
+                                    {
+                                        action = Some(OptimizationAction::SetBackgroundExecution {
+                                            package: app.package.clone(),
+                                            policy,
+                                        });
                                     }
-
-                                    ui.label(
-                                        egui::RichText::new(translations.get(status_key))
-                                            .small()
-                                            .color(status_color),
-                                    );
                                 },
                             );
                         },
@@ -320,4 +336,13 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
         );
 
     action
+}
+
+fn column_header(ui: &mut egui::Ui, text: &str) {
+    ui.add_sized(
+        egui::vec2(theme::size::BUTTON_WIDTH, theme::size::CONTROL_HEIGHT),
+        egui::Label::new(egui::RichText::new(text).strong())
+            .halign(egui::Align::Center)
+            .selectable(false),
+    );
 }

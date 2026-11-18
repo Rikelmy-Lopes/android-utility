@@ -45,11 +45,11 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Active recording cancelled when leaving the Process tab or switching devices.
 - [x] Process tab label renamed from "Device" and a fixed spinner slot keeps the toolbar controls from shifting while loading.
 - [x] Resource usage summary dialog widths the CPU and memory columns from the measured header and value text, grows up to the window width, and never clips those columns.
-- [x] Optimization tab listing installed applications with the same all, system, and installed filters; the toggle button shows Doze whitelist state, so no separate status text is shown.
+- [x] Optimization tab listing installed applications with the same all, system, and installed filters.
 - [x] Doze whitelist read from `dumpsys deviceidle whitelist` with system and user entries tracked internally.
 - [x] Per-application Doze toggle adding or removing a package from the whitelist through `dumpsys deviceidle whitelist +package` and `-package`.
 - [x] Optimization tab reuses the cached application names without its own name-loading controls.
-- [x] Optimization tab displays each application's `RUN_ANY_IN_BACKGROUND` state.
+- [x] Optimization tab shows Background and Doze columns; Background values are Allowed and Denied, Doze values are Ignore and Not ignore.
 - [x] Background execution states are read in one `cmd appops query-op RUN_ANY_IN_BACKGROUND ignore` call instead of one call per application.
 - [x] Per-application background execution toggle switching between allow and ignore with `cmd appops set`.
 - [x] Background execution policies load with the Doze whitelist when the Optimization tab opens and when it is refreshed.
