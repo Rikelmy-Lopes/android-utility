@@ -1,5 +1,6 @@
 //! Application commands and their background execution.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc;
 
@@ -149,19 +150,12 @@ pub enum CommandEvent {
         /// Loaded whitelist entries or failure.
         result: Result<Vec<DozeWhitelistEntry>, AdbError>,
     },
-    /// Background execution policy of one package.
+    /// Background execution policies for the requested packages.
     BackgroundExecution {
-        /// Device serial the policy belongs to.
-        serial: String,
-        /// Package the policy belongs to.
-        package: PackageName,
-        /// Policy or failure.
-        result: Result<Option<BackgroundExecution>, AdbError>,
-    },
-    /// All requested background execution policies have been read.
-    BackgroundExecutionFinished {
         /// Device serial the policies belong to.
         serial: String,
+        /// Policies or failure.
+        result: Result<HashMap<PackageName, BackgroundExecution>, AdbError>,
     },
     /// Background execution policy update result.
     BackgroundExecutionChanged {
@@ -246,16 +240,22 @@ pub fn execute(service: &dyn DeviceService, command: Command, emit: &mut dyn FnM
             emit(CommandEvent::DozeWhitelist { serial, result });
         }
         Command::LoadBackgroundExecution { serial, packages } => {
-            for package in packages {
-                let result = service.background_execution(&serial, &package);
-                emit(CommandEvent::BackgroundExecution {
-                    serial: serial.clone(),
-                    package,
-                    result,
-                });
-            }
+            let result = service.ignored_background_packages(&serial).map(|ignored| {
+                packages
+                    .into_iter()
+                    .map(|package| {
+                        let policy = if ignored.contains(&package) {
+                            BackgroundExecution::Ignored
+                        } else {
+                            BackgroundExecution::Allowed
+                        };
 
-            emit(CommandEvent::BackgroundExecutionFinished { serial });
+                        (package, policy)
+                    })
+                    .collect()
+            });
+
+            emit(CommandEvent::BackgroundExecution { serial, result });
         }
         Command::SetBackgroundExecution {
             serial,
@@ -332,7 +332,7 @@ mod tests {
         processes: Result<Vec<ProcessUsage>, AdbError>,
         doze_whitelist: Result<Vec<DozeWhitelistEntry>, AdbError>,
         set_doze_whitelist: Result<(), AdbError>,
-        background_execution: Result<Option<BackgroundExecution>, AdbError>,
+        ignored_background: Result<std::collections::HashSet<PackageName>, AdbError>,
         set_background_execution: Result<(), AdbError>,
         label: Result<Option<String>, AdbError>,
         disable: Result<(), AdbError>,
@@ -349,7 +349,7 @@ mod tests {
                 processes: Ok(Vec::new()),
                 doze_whitelist: Ok(Vec::new()),
                 set_doze_whitelist: Ok(()),
-                background_execution: Ok(None),
+                ignored_background: Ok(std::collections::HashSet::new()),
                 set_background_execution: Ok(()),
                 label: Ok(None),
                 disable: Ok(()),
@@ -411,16 +411,12 @@ mod tests {
             self.set_doze_whitelist.clone()
         }
 
-        fn background_execution(
+        fn ignored_background_packages(
             &self,
             serial: &str,
-            package: &PackageName,
-        ) -> Result<Option<BackgroundExecution>, AdbError> {
-            self.record(format!("background_execution({serial},{package})"));
-            match &self.background_execution {
-                Ok(policy) => Ok(*policy),
-                Err(error) => Err(error.clone()),
-            }
+        ) -> Result<std::collections::HashSet<PackageName>, AdbError> {
+            self.record(format!("ignored_background_packages({serial})"));
+            self.ignored_background.clone()
         }
 
         fn set_background_execution(
@@ -626,9 +622,10 @@ mod tests {
     }
 
     #[test]
-    fn forwards_background_execution_for_each_package() {
+    fn forwards_background_execution_with_one_bulk_query() {
+        let other = PackageName::parse("com.other").unwrap();
         let service = FakeService {
-            background_execution: Ok(Some(BackgroundExecution::Ignored)),
+            ignored_background: Ok([package()].into_iter().collect()),
             ..Default::default()
         };
 
@@ -636,28 +633,24 @@ mod tests {
             &service,
             Command::LoadBackgroundExecution {
                 serial: "serial".to_owned(),
-                packages: vec![package(), PackageName::parse("com.other").unwrap()],
+                packages: vec![package(), other.clone()],
             },
         );
 
-        assert_eq!(events.len(), 3);
-        assert!(matches!(
-            &events[0],
+        assert_eq!(events.len(), 1);
+        match &events[0] {
             CommandEvent::BackgroundExecution {
-                result: Ok(Some(BackgroundExecution::Ignored)),
+                result: Ok(policies),
                 ..
+            } => {
+                assert_eq!(policies[&package()], BackgroundExecution::Ignored);
+                assert_eq!(policies[&other], BackgroundExecution::Allowed);
             }
-        ));
-        assert!(matches!(
-            &events[2],
-            CommandEvent::BackgroundExecutionFinished { .. }
-        ));
+            other => panic!("unexpected event: {other:?}"),
+        }
         assert_eq!(
             service.calls.lock().unwrap().as_slice(),
-            [
-                "background_execution(serial,com.example)",
-                "background_execution(serial,com.other)"
-            ]
+            ["ignored_background_packages(serial)"]
         );
     }
 

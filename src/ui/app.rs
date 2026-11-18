@@ -653,18 +653,8 @@ impl AndroidUtilityApp {
             } => {
                 self.handle_doze_whitelist_changed(&serial, package, whitelisted, result);
             }
-            CommandEvent::BackgroundExecution {
-                serial,
-                package,
-                result,
-            } => {
-                self.handle_background_execution(&serial, package, result);
-            }
-            CommandEvent::BackgroundExecutionFinished { serial } => {
-                if self.selected_serial() == Some(serial.as_str()) {
-                    self.background_execution_loaded = true;
-                    self.loading_background_execution = false;
-                }
+            CommandEvent::BackgroundExecution { serial, result } => {
+                self.handle_background_execution(&serial, result);
             }
             CommandEvent::BackgroundExecutionChanged {
                 serial,
@@ -824,6 +814,7 @@ impl AndroidUtilityApp {
 
                 sort_apps(&mut apps);
                 self.apps = apps;
+                self.background_execution_loaded = false;
 
                 let count = self.apps.len().to_string();
                 debug!(apps = self.apps.len(), "applications loaded");
@@ -949,22 +940,27 @@ impl AndroidUtilityApp {
     fn handle_background_execution(
         &mut self,
         serial: &str,
-        package: PackageName,
-        result: Result<Option<BackgroundExecution>, AdbError>,
+        result: Result<HashMap<PackageName, BackgroundExecution>, AdbError>,
     ) {
         if self.selected_serial() != Some(serial) {
             return;
         }
 
+        self.background_execution_loaded = true;
+        self.loading_background_execution = false;
+
         match result {
-            Ok(Some(policy)) => {
-                self.background_execution.insert(package, policy);
-            }
-            Ok(None) => {
-                debug!(%package, "background execution policy not reported");
+            Ok(policies) => {
+                debug!(
+                    packages = policies.len(),
+                    "background execution policies loaded"
+                );
+                self.background_execution = policies;
             }
             Err(error) => {
-                warn!(%package, %error, "background execution policy could not be read");
+                self.background_execution.clear();
+                self.background_execution_loaded = false;
+                self.set_error(self.error_text(&error));
             }
         }
     }

@@ -2,9 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use android_utility_core::{
-    BackgroundExecution, DozeWhitelistEntry, DozeWhitelistSource, PackageName, ProcessUsage,
-};
+use android_utility_core::{DozeWhitelistEntry, DozeWhitelistSource, PackageName, ProcessUsage};
 
 use super::{DeviceState, process::ProcessOutput};
 
@@ -123,42 +121,15 @@ pub fn parse_doze_whitelist(output: &str) -> Vec<DozeWhitelistEntry> {
         .collect()
 }
 
-/// Parses `cmd appops get <package> RUN_ANY_IN_BACKGROUND` output.
+/// Parses `cmd appops query-op RUN_ANY_IN_BACKGROUND ignore` output.
 ///
-/// Devices print the value after a colon, an equals sign, or as a bare token.
-/// When no explicit operation is reported, the fallback is `Default mode`.
-/// The first recognized value wins. Unrecognized output yields `None`.
-pub fn parse_background_execution(output: &str) -> Option<BackgroundExecution> {
-    let explicit = output.lines().find_map(|line| {
-        let (_, value) = line.split_once("RUN_ANY_IN_BACKGROUND")?;
-        parse_appops_mode(value)
-    });
-
-    explicit.or_else(|| {
-        output.lines().find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-
-            if name.trim().eq_ignore_ascii_case("Default mode") {
-                parse_appops_mode(value)
-            } else {
-                None
-            }
-        })
-    })
-}
-
-fn parse_appops_mode(raw: &str) -> Option<BackgroundExecution> {
-    let value = raw
-        .trim_start_matches([':', '='])
-        .split_whitespace()
-        .next()?
-        .trim_end_matches(';');
-
-    match value.to_ascii_lowercase().as_str() {
-        "allow" => Some(BackgroundExecution::Allowed),
-        "ignore" => Some(BackgroundExecution::Ignored),
-        _ => None,
-    }
+/// The command prints one package name per line. Unrecognized lines are
+/// ignored so that vendor diagnostics do not break the listing.
+pub fn parse_ignored_background_packages(output: &str) -> HashSet<PackageName> {
+    output
+        .lines()
+        .filter_map(|line| PackageName::parse(line.trim()).ok())
+        .collect()
 }
 
 fn doze_whitelist_source(raw: &str) -> DozeWhitelistSource {
@@ -576,55 +547,19 @@ mod tests {
     }
 
     #[test]
-    fn parses_background_execution_values() {
-        assert_eq!(
-            parse_background_execution("RUN_ANY_IN_BACKGROUND: allow\n"),
-            Some(BackgroundExecution::Allowed)
+    fn parses_ignored_background_packages() {
+        let packages = parse_ignored_background_packages(
+            "com.example.chat\n\
+             com.example.mail\n\
+             \n\
+             Error: something unexpected\n\
+             com.invalid-name\n",
         );
-        assert_eq!(
-            parse_background_execution("Uid mode: RUN_ANY_IN_BACKGROUND: ignore\n"),
-            Some(BackgroundExecution::Ignored)
-        );
-        assert_eq!(
-            parse_background_execution("RUN_ANY_IN_BACKGROUND=ALLOW"),
-            Some(BackgroundExecution::Allowed)
-        );
-        assert_eq!(
-            parse_background_execution("  RUN_ANY_IN_BACKGROUND   ignore  \n"),
-            Some(BackgroundExecution::Ignored)
-        );
-        assert_eq!(
-            parse_background_execution(
-                "RUN_ANY_IN_BACKGROUND: allow; time=+2d22h19m40s676ms ago\n"
-            ),
-            Some(BackgroundExecution::Allowed)
-        );
-        assert_eq!(
-            parse_background_execution("RUN_ANY_IN_BACKGROUND: ignore; time=+1h2m3s456ms ago\n"),
-            Some(BackgroundExecution::Ignored)
-        );
-        assert_eq!(
-            parse_background_execution("No operations.\nDefault mode: allow\n"),
-            Some(BackgroundExecution::Allowed)
-        );
-        assert_eq!(
-            parse_background_execution("No operations.\nDefault mode: ignore\n"),
-            Some(BackgroundExecution::Ignored)
-        );
-    }
 
-    #[test]
-    fn ignores_missing_or_unknown_background_execution_values() {
-        assert_eq!(parse_background_execution(""), None);
-        assert_eq!(parse_background_execution("No operations.\n"), None);
-        assert_eq!(
-            parse_background_execution("RUN_ANY_IN_BACKGROUND: default\n"),
-            None
-        );
-        assert_eq!(
-            parse_background_execution("RUN_ANY_IN_BACKGROUND: deny\n"),
-            None
-        );
+        assert_eq!(packages.len(), 2);
+        assert!(packages.contains(&PackageName::parse("com.example.chat").unwrap()));
+        assert!(packages.contains(&PackageName::parse("com.example.mail").unwrap()));
+        assert!(parse_ignored_background_packages("").is_empty());
     }
 
     #[test]

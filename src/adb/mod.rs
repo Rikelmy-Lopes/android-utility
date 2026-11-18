@@ -21,7 +21,7 @@ pub use error::AdbError;
 pub use process::ProcessOutput;
 
 use parse::{
-    merge_package_paths, parse_background_execution, parse_devices, parse_doze_whitelist,
+    merge_package_paths, parse_devices, parse_doze_whitelist, parse_ignored_background_packages,
     parse_package_entries, parse_package_names, parse_top_processes, permission_denied, pm_failure,
     uninstall_succeeded,
 };
@@ -51,12 +51,8 @@ pub trait DeviceService: Send + Sync {
         whitelisted: bool,
     ) -> Result<(), AdbError>;
 
-    /// Reads the background execution policy of one package.
-    fn background_execution(
-        &self,
-        serial: &str,
-        package: &PackageName,
-    ) -> Result<Option<BackgroundExecution>, AdbError>;
+    /// Lists packages restricted from running in the background.
+    fn ignored_background_packages(&self, serial: &str) -> Result<HashSet<PackageName>, AdbError>;
 
     /// Changes the background execution policy of one package.
     fn set_background_execution(
@@ -314,27 +310,23 @@ impl DeviceService for Adb {
         }
     }
 
-    fn background_execution(
-        &self,
-        serial: &str,
-        package: &PackageName,
-    ) -> Result<Option<BackgroundExecution>, AdbError> {
+    fn ignored_background_packages(&self, serial: &str) -> Result<HashSet<PackageName>, AdbError> {
         let output = self.shell(
             serial,
             &[
                 "cmd",
                 "appops",
-                "get",
-                package.as_str(),
+                "query-op",
                 "RUN_ANY_IN_BACKGROUND",
+                "ignore",
             ],
         )?;
 
-        if !output.succeeded() {
-            return Err(AdbError::command_failed(output.diagnostics()));
+        if appops_command_succeeded(&output) {
+            Ok(parse_ignored_background_packages(&output.stdout))
+        } else {
+            Err(AdbError::command_failed(output.diagnostics()))
         }
-
-        Ok(parse_background_execution(&output.stdout))
     }
 
     fn set_background_execution(
@@ -448,9 +440,19 @@ fn doze_whitelist_command_succeeded(output: &ProcessOutput) -> bool {
 }
 
 fn appops_command_succeeded(output: &ProcessOutput) -> bool {
-    let report = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
+    if !output.succeeded() {
+        return false;
+    }
 
-    output.succeeded() && !report.contains("error") && !report.contains("exception")
+    let stderr = output.stderr.to_ascii_lowercase();
+    if stderr.contains("error") || stderr.contains("exception") {
+        return false;
+    }
+
+    let stdout = output.stdout.trim().to_ascii_lowercase();
+    !(stdout.starts_with("error")
+        || stdout.starts_with("exception")
+        || stdout.starts_with("java.lang."))
 }
 
 fn pm_error(output: &ProcessOutput) -> AdbError {
@@ -495,6 +497,7 @@ mod tests {
             "java.lang.SecurityException: denied",
             0
         )));
+        assert!(appops_command_succeeded(&output("com.error.app\n", 0)));
     }
 
     #[test]

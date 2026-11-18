@@ -49,7 +49,8 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Doze whitelist read from `dumpsys deviceidle whitelist` with system and user entries tracked internally.
 - [x] Per-application Doze toggle adding or removing a package from the whitelist through `dumpsys deviceidle whitelist +package` and `-package`.
 - [x] Optimization tab reuses the cached application names without its own name-loading controls.
-- [x] Optimization tab displays each application's `RUN_ANY_IN_BACKGROUND` state read with `cmd appops get`.
+- [x] Optimization tab displays each application's `RUN_ANY_IN_BACKGROUND` state.
+- [x] Background execution states are read in one `cmd appops query-op RUN_ANY_IN_BACKGROUND ignore` call instead of one call per application.
 - [x] Per-application background execution toggle switching between allow and ignore with `cmd appops set`.
 - [x] Background execution policies load with the Doze whitelist when the Optimization tab opens and when it is refreshed.
 - [x] Applications tab asks for confirmation before loading every application name, warning that the operation is slow.
