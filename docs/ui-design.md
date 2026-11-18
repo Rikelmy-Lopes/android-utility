@@ -44,13 +44,13 @@ Make device state visible and unambiguous.
   - Medium spacing: 12 points.
   - Panel padding: 12 points.
   - List row horizontal padding: 8 points.
-- Use a consistent interactive control height of 30 points for buttons, inputs, and selectors.
+- Use a consistent interactive control height of 28 points for buttons, inputs, and selectors.
 - Design for longer translations. Leave room for the longest expected label instead of truncating routine actions.
 
 ## Shape and Borders
 
 - Use rounded corners on every button, input field, selector, combo box, and numeric control.
-- Use an 8-point corner radius for controls and a 12-point radius for panels, windows, and dialogs.
+- Use a 4-point corner radius for controls and an 8-point radius for panels, windows, and dialogs.
 - Keep border widths consistent. Use the palette border color for resting controls and the accent color for focus, hover, and active states.
 - Do not mix sharp and rounded controls in the same view.
 
