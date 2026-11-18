@@ -284,7 +284,7 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
     action
 }
 
-fn filter_label(translations: &Translations, filter: AppsFilter) -> &str {
+pub(super) fn filter_label(translations: &Translations, filter: AppsFilter) -> &str {
     match filter {
         AppsFilter::All => translations.get("apps.filter_all"),
         AppsFilter::System => translations.get("apps.filter_system"),

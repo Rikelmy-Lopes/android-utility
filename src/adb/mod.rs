@@ -13,14 +13,16 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use android_utility_core::{InstalledApp, PackageName, ProcessUsage, sort_apps};
+use android_utility_core::{
+    DozeWhitelistEntry, InstalledApp, PackageName, ProcessUsage, sort_apps,
+};
 
 pub use error::AdbError;
 pub use process::ProcessOutput;
 
 use parse::{
-    merge_package_paths, parse_devices, parse_package_entries, parse_package_names,
-    parse_top_processes, permission_denied, pm_failure, uninstall_succeeded,
+    merge_package_paths, parse_devices, parse_doze_whitelist, parse_package_entries,
+    parse_package_names, parse_top_processes, permission_denied, pm_failure, uninstall_succeeded,
 };
 
 /// ADB operations required by application commands.
@@ -36,6 +38,17 @@ pub trait DeviceService: Send + Sync {
 
     /// Reads the current process table with CPU and resident memory usage.
     fn processes(&self, serial: &str) -> Result<Vec<ProcessUsage>, AdbError>;
+
+    /// Lists packages exempt from Doze restrictions.
+    fn doze_whitelist(&self, serial: &str) -> Result<Vec<DozeWhitelistEntry>, AdbError>;
+
+    /// Adds or removes a package from the Device Idle whitelist.
+    fn set_doze_whitelisted(
+        &self,
+        serial: &str,
+        package: &PackageName,
+        whitelisted: bool,
+    ) -> Result<(), AdbError>;
 
     /// Reads the application label from the APK at `apk_path`.
     fn application_label(&self, serial: &str, apk_path: &str) -> Result<Option<String>, AdbError>;
@@ -253,6 +266,38 @@ impl DeviceService for Adb {
         Ok(processes)
     }
 
+    fn doze_whitelist(&self, serial: &str) -> Result<Vec<DozeWhitelistEntry>, AdbError> {
+        let output = self.shell(serial, &["dumpsys", "deviceidle", "whitelist"])?;
+
+        if !output.succeeded() {
+            return Err(AdbError::command_failed(output.diagnostics()));
+        }
+
+        Ok(parse_doze_whitelist(&output.stdout))
+    }
+
+    fn set_doze_whitelisted(
+        &self,
+        serial: &str,
+        package: &PackageName,
+        whitelisted: bool,
+    ) -> Result<(), AdbError> {
+        self.ensure_device_ready(serial)?;
+
+        let operation = if whitelisted { "+" } else { "-" };
+        let argument = format!("{operation}{package}");
+        let output = self.shell(
+            serial,
+            &["dumpsys", "deviceidle", "whitelist", argument.as_str()],
+        )?;
+
+        if doze_whitelist_command_succeeded(&output) {
+            Ok(())
+        } else {
+            Err(AdbError::command_failed(output.diagnostics()))
+        }
+    }
+
     fn application_label(&self, serial: &str, apk_path: &str) -> Result<Option<String>, AdbError> {
         let local_path = self.temporary_apk_path()?;
         let local_argument = local_path.to_string_lossy().into_owned();
@@ -324,6 +369,14 @@ impl DeviceService for Adb {
     }
 }
 
+fn doze_whitelist_command_succeeded(output: &ProcessOutput) -> bool {
+    output.succeeded()
+        && !output
+            .stdout
+            .to_ascii_lowercase()
+            .contains("unknown package")
+}
+
 fn pm_error(output: &ProcessOutput) -> AdbError {
     let message = pm_failure(output).unwrap_or_else(|| {
         let diagnostics = output.diagnostics();
@@ -338,5 +391,33 @@ fn pm_error(output: &ProcessOutput) -> AdbError {
         AdbError::PermissionDenied { message }
     } else {
         AdbError::command_failed(message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn output(stdout: &str, code: i32) -> ProcessOutput {
+        ProcessOutput {
+            code: Some(code),
+            stdout: stdout.to_owned(),
+            stderr: String::new(),
+            timed_out: false,
+        }
+    }
+
+    #[test]
+    fn doze_whitelist_change_requires_success_and_a_known_package() {
+        assert!(doze_whitelist_command_succeeded(&output("", 0)));
+        assert!(doze_whitelist_command_succeeded(&output(
+            "Added: com.example",
+            0
+        )));
+        assert!(!doze_whitelist_command_succeeded(&output(
+            "Unknown package: com.example",
+            0
+        )));
+        assert!(!doze_whitelist_command_succeeded(&output("", 1)));
     }
 }

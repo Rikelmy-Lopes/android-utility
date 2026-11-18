@@ -7,12 +7,13 @@ use eframe::egui;
 use tracing::{debug, info, warn};
 
 use android_utility_core::{
-    InstalledApp, PackageName, ProcessSort, ProcessUsage, ResourceSession, SessionSummary,
-    sort_apps, sort_processes,
+    DozeWhitelistEntry, DozeWhitelistSource, InstalledApp, PackageName, ProcessSort, ProcessUsage,
+    ResourceSession, SessionSummary, sort_apps, sort_processes,
 };
 
 use super::apps_panel::{self, AppsAction, AppsFilter, AppsPanel};
 use super::confirm::{self, ConfirmKind, ConfirmResponse, PendingConfirmation};
+use super::optimization_panel::{self, OptimizationAction, OptimizationPanel};
 use super::processes_panel::{self, ProcessLimit, ProcessRefresh, ProcessesAction, ProcessesPanel};
 use super::session_summary;
 use super::theme;
@@ -34,6 +35,11 @@ pub struct AndroidUtilityApp {
     label_cache: LabelCache,
     search: String,
     apps_filter: AppsFilter,
+    optimization_search: String,
+    optimization_filter: AppsFilter,
+    doze_whitelist: HashMap<PackageName, DozeWhitelistSource>,
+    doze_whitelist_loaded: bool,
+    loading_doze_whitelist: bool,
     receivers: Vec<Receiver<CommandEvent>>,
     busy: HashSet<PackageName>,
     loading_devices: bool,
@@ -59,6 +65,7 @@ pub struct AndroidUtilityApp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Apps,
+    Optimization,
     Device,
 }
 
@@ -147,6 +154,11 @@ impl AndroidUtilityApp {
             label_cache,
             search: String::new(),
             apps_filter: AppsFilter::All,
+            optimization_search: String::new(),
+            optimization_filter: AppsFilter::All,
+            doze_whitelist: HashMap::new(),
+            doze_whitelist_loaded: false,
+            loading_doze_whitelist: false,
             receivers: Vec::new(),
             busy: HashSet::new(),
             loading_devices: false,
@@ -303,6 +315,60 @@ impl AndroidUtilityApp {
             self.service.clone(),
             Command::LoadProcesses { serial },
         ));
+    }
+
+    fn load_doze_whitelist(&mut self) {
+        if self.loading_doze_whitelist {
+            return;
+        }
+
+        let Some(serial) = self.selected_serial().map(str::to_owned) else {
+            return;
+        };
+
+        self.loading_doze_whitelist = true;
+        self.receivers.push(commands::spawn(
+            self.service.clone(),
+            Command::LoadDozeWhitelist { serial },
+        ));
+    }
+
+    fn set_doze_whitelisted(&mut self, package: PackageName, whitelisted: bool) {
+        let Some(serial) = self.selected_serial().map(str::to_owned) else {
+            self.set_error(self.translations.get("error.no_device_selected").to_owned());
+            return;
+        };
+
+        if self.busy.contains(&package) {
+            return;
+        }
+
+        self.busy.insert(package.clone());
+        info!(
+            serial = %serial,
+            package = %package,
+            whitelisted,
+            "updating doze whitelist"
+        );
+        self.set_info(self.translations.format(
+            "status.doze_change_started",
+            &[("package", package.as_str())],
+        ));
+
+        self.receivers.push(commands::spawn(
+            self.service.clone(),
+            Command::SetDozeWhitelist {
+                serial,
+                package,
+                whitelisted,
+            },
+        ));
+    }
+
+    fn clear_doze_whitelist(&mut self) {
+        self.doze_whitelist.clear();
+        self.doze_whitelist_loaded = false;
+        self.loading_doze_whitelist = false;
     }
 
     fn start_usage_session(&mut self) {
@@ -463,6 +529,18 @@ impl AndroidUtilityApp {
         }
     }
 
+    fn handle_optimization_action(&mut self, action: OptimizationAction) {
+        match action {
+            OptimizationAction::Refresh => self.load_doze_whitelist(),
+            OptimizationAction::LoadNames => self.load_missing_labels(),
+            OptimizationAction::LoadName(package) => self.load_label(package),
+            OptimizationAction::SetWhitelisted {
+                package,
+                whitelisted,
+            } => self.set_doze_whitelisted(package, whitelisted),
+        }
+    }
+
     fn poll_events(&mut self) {
         let receivers = std::mem::take(&mut self.receivers);
         let mut remaining = Vec::new();
@@ -495,6 +573,17 @@ impl AndroidUtilityApp {
             CommandEvent::Apps { serial, result } => self.handle_apps(&serial, result),
             CommandEvent::Processes { serial, result } => {
                 self.handle_processes(&serial, result);
+            }
+            CommandEvent::DozeWhitelist { serial, result } => {
+                self.handle_doze_whitelist(&serial, result);
+            }
+            CommandEvent::DozeWhitelistChanged {
+                serial,
+                package,
+                whitelisted,
+                result,
+            } => {
+                self.handle_doze_whitelist_changed(&serial, package, whitelisted, result);
             }
             CommandEvent::Label {
                 serial,
@@ -594,6 +683,7 @@ impl AndroidUtilityApp {
                     self.processes.clear();
                     self.loading_processes = false;
                     self.last_process_refresh = None;
+                    self.clear_doze_whitelist();
                     self.cancel_usage_session();
                 }
 
@@ -619,6 +709,7 @@ impl AndroidUtilityApp {
                 self.processes.clear();
                 self.loading_processes = false;
                 self.last_process_refresh = None;
+                self.clear_doze_whitelist();
                 self.cancel_usage_session();
                 self.set_error(self.error_text(&error));
             }
@@ -649,6 +740,10 @@ impl AndroidUtilityApp {
                     self.translations
                         .format("status.apps_loaded", &[("count", &count)]),
                 );
+
+                if self.selected_tab == Tab::Optimization && !self.doze_whitelist_loaded {
+                    self.load_doze_whitelist();
+                }
             }
             Err(error) => {
                 self.apps.clear();
@@ -674,6 +769,79 @@ impl AndroidUtilityApp {
 
                 debug!(processes = processes.len(), "process table loaded");
                 self.processes = processes;
+            }
+            Err(error) => {
+                self.set_error(self.error_text(&error));
+            }
+        }
+    }
+
+    fn handle_doze_whitelist(
+        &mut self,
+        serial: &str,
+        result: Result<Vec<DozeWhitelistEntry>, AdbError>,
+    ) {
+        if self.selected_serial() != Some(serial) {
+            return;
+        }
+
+        self.loading_doze_whitelist = false;
+
+        match result {
+            Ok(entries) => {
+                self.doze_whitelist = entries
+                    .into_iter()
+                    .map(|entry| (entry.package, entry.source))
+                    .collect();
+                self.doze_whitelist_loaded = true;
+
+                let count = self.doze_whitelist.len().to_string();
+                debug!(
+                    whitelisted = self.doze_whitelist.len(),
+                    "doze whitelist loaded"
+                );
+                self.set_info(
+                    self.translations
+                        .format("status.doze_loaded", &[("count", &count)]),
+                );
+            }
+            Err(error) => {
+                self.doze_whitelist.clear();
+                self.doze_whitelist_loaded = false;
+                self.set_error(self.error_text(&error));
+            }
+        }
+    }
+
+    fn handle_doze_whitelist_changed(
+        &mut self,
+        serial: &str,
+        package: PackageName,
+        whitelisted: bool,
+        result: Result<(), AdbError>,
+    ) {
+        if self.selected_serial() != Some(serial) {
+            return;
+        }
+
+        self.busy.remove(&package);
+
+        match result {
+            Ok(()) => {
+                if whitelisted {
+                    self.doze_whitelist
+                        .insert(package.clone(), DozeWhitelistSource::User);
+                } else {
+                    self.doze_whitelist.remove(&package);
+                }
+
+                let name = self.display_name_for(&package);
+                let message_key = if whitelisted {
+                    "status.doze_whitelisted_ok"
+                } else {
+                    "status.doze_unwhitelisted_ok"
+                };
+                self.set_success(self.translations.format(message_key, &[("name", &name)]));
             }
             Err(error) => {
                 self.set_error(self.error_text(&error));
@@ -727,6 +895,7 @@ impl AndroidUtilityApp {
                             self.processes.clear();
                             self.loading_processes = false;
                             self.last_process_refresh = None;
+                            self.clear_doze_whitelist();
                             self.cancel_usage_session();
                             self.load_apps();
                         }
@@ -879,6 +1048,7 @@ impl eframe::App for AndroidUtilityApp {
 
         let mut action = None;
         let mut process_action = None;
+        let mut optimization_action = None;
         let translations = &self.translations;
         let previous_tab = self.selected_tab;
         let previous_sort = self.process_sort;
@@ -889,6 +1059,11 @@ impl eframe::App for AndroidUtilityApp {
             ui.add_space(theme::size::SPACING_SM);
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut selected_tab, Tab::Apps, translations.get("tabs.apps"));
+                ui.selectable_value(
+                    &mut selected_tab,
+                    Tab::Optimization,
+                    translations.get("tabs.optimization"),
+                );
                 ui.selectable_value(
                     &mut selected_tab,
                     Tab::Device,
@@ -929,13 +1104,38 @@ impl eframe::App for AndroidUtilityApp {
                         },
                     );
                 }
+                Tab::Optimization => {
+                    optimization_action = optimization_panel::show(
+                        ui,
+                        OptimizationPanel {
+                            apps: &self.apps,
+                            whitelist: &self.doze_whitelist,
+                            filter: &mut self.optimization_filter,
+                            search: &mut self.optimization_search,
+                            busy: &self.busy,
+                            loading_apps: self.loading_apps,
+                            loading_whitelist: self.loading_doze_whitelist,
+                            whitelist_loaded: self.doze_whitelist_loaded,
+                            loading_labels: self.labels_pending,
+                            translations,
+                        },
+                    );
+                }
             }
         });
 
         self.selected_tab = selected_tab;
 
+        if previous_tab != Tab::Optimization && selected_tab == Tab::Optimization {
+            self.load_doze_whitelist();
+        }
+
         if selected_tab != Tab::Device {
             self.cancel_usage_session();
+        }
+
+        if let Some(action) = optimization_action {
+            self.handle_optimization_action(action);
         }
 
         if self.process_sort != previous_sort {

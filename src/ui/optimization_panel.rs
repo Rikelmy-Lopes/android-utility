@@ -1,0 +1,281 @@
+//! Doze whitelist view for the optimization tab.
+
+use std::collections::{HashMap, HashSet};
+
+use eframe::egui;
+
+use android_utility_core::{DozeWhitelistSource, InstalledApp, PackageName};
+
+use crate::i18n::Translations;
+
+use super::apps_panel::{AppsFilter, filter_label};
+use super::theme;
+
+/// Read-only state needed to render the optimization list.
+pub struct OptimizationPanel<'a> {
+    /// Applications to display.
+    pub apps: &'a [InstalledApp],
+    /// Whitelisted packages and their origin.
+    pub whitelist: &'a HashMap<PackageName, DozeWhitelistSource>,
+    /// Package subset selected by the user.
+    pub filter: &'a mut AppsFilter,
+    /// Search query edited by the user.
+    pub search: &'a mut String,
+    /// Packages with an operation in progress.
+    pub busy: &'a HashSet<PackageName>,
+    /// Whether applications are being loaded.
+    pub loading_apps: bool,
+    /// Whether the Doze whitelist is being loaded.
+    pub loading_whitelist: bool,
+    /// Whether the Doze whitelist was loaded successfully.
+    pub whitelist_loaded: bool,
+    /// Whether application labels are being resolved.
+    pub loading_labels: bool,
+    /// Translation source.
+    pub translations: &'a Translations,
+}
+
+/// Action requested by the user in the optimization list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OptimizationAction {
+    /// Read the Doze whitelist again.
+    Refresh,
+    /// Read application names for the listed packages.
+    LoadNames,
+    /// Read the application name for one package.
+    LoadName(PackageName),
+    /// Add or remove one package from the Doze whitelist.
+    SetWhitelisted {
+        /// Package to update.
+        package: PackageName,
+        /// Whether the package should be ignored by Doze.
+        whitelisted: bool,
+    },
+}
+
+/// Renders the optimization list and returns the requested action.
+pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<OptimizationAction> {
+    let translations = state.translations;
+    let palette = theme::palette(ui);
+    let mut action = None;
+
+    ui.horizontal(|ui| {
+        let search_frame = egui::Frame::new()
+            .fill(palette.input_background)
+            .stroke(egui::Stroke::new(1.0, palette.border))
+            .corner_radius(egui::CornerRadius::same(theme::radius::CONTROL))
+            .inner_margin(egui::Margin::symmetric(
+                theme::size::INPUT_PADDING_X,
+                theme::size::INPUT_PADDING_Y,
+            ));
+
+        ui.add(
+            egui::TextEdit::singleline(state.search)
+                .frame(search_frame)
+                .hint_text(translations.get("apps.search_hint"))
+                .desired_width(theme::size::SEARCH_WIDTH),
+        );
+
+        ui.label(translations.get("apps.filter"));
+        egui::ComboBox::from_id_salt("optimization_filter")
+            .selected_text(filter_label(translations, *state.filter))
+            .show_ui(ui, |ui| {
+                for filter in AppsFilter::OPTIONS {
+                    ui.selectable_value(state.filter, filter, filter_label(translations, filter));
+                }
+            });
+
+        let filtered_count = state
+            .apps
+            .iter()
+            .filter(|app| state.filter.matches(app))
+            .count();
+        ui.label(translations.format("apps.count", &[("count", &filtered_count.to_string())]));
+
+        if state.whitelist_loaded {
+            let whitelisted = state.whitelist.len().to_string();
+            ui.label(
+                translations.format("optimization.whitelisted_count", &[("count", &whitelisted)]),
+            );
+        }
+
+        let refresh = theme::toned_button(
+            translations.get("optimization.refresh"),
+            theme::ButtonTone::Primary,
+            palette,
+        );
+
+        if ui
+            .add_enabled(!state.loading_whitelist, refresh)
+            .on_hover_text(translations.get("optimization.refresh_tooltip"))
+            .clicked()
+        {
+            action = Some(OptimizationAction::Refresh);
+        }
+
+        if state.loading_labels {
+            ui.spinner();
+            ui.label(translations.get("apps.loading_names"));
+        } else if ui
+            .add_enabled(
+                !state.apps.is_empty(),
+                theme::toned_button(
+                    translations.get("apps.load_names"),
+                    theme::ButtonTone::Neutral,
+                    palette,
+                ),
+            )
+            .on_hover_text(translations.get("apps.load_names_tooltip"))
+            .clicked()
+        {
+            action = Some(OptimizationAction::LoadNames);
+        }
+    });
+
+    ui.add_space(theme::size::SPACING_SM);
+
+    if state.loading_apps && state.apps.is_empty() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(translations.get("apps.loading"));
+        });
+        return action;
+    }
+
+    if state.apps.is_empty() {
+        ui.label(translations.get("apps.empty"));
+        return action;
+    }
+
+    if !state.whitelist_loaded {
+        ui.horizontal(|ui| {
+            if state.loading_whitelist {
+                ui.spinner();
+                ui.label(translations.get("optimization.loading"));
+            } else {
+                ui.label(translations.get("optimization.unavailable"));
+            }
+        });
+        return action;
+    }
+
+    let query = state.search.trim().to_lowercase();
+    let matches_query = |app: &&InstalledApp| {
+        query.is_empty()
+            || app.display_name().to_lowercase().contains(&query)
+            || app.package.as_str().contains(&query)
+    };
+
+    let visible: Vec<&InstalledApp> = state
+        .apps
+        .iter()
+        .filter(|app| state.filter.matches(app))
+        .filter(matches_query)
+        .collect();
+
+    if visible.is_empty() {
+        ui.label(translations.get("apps.no_matches"));
+        return action;
+    }
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show_rows(
+            ui,
+            theme::size::ROW_HEIGHT_APPS,
+            visible.len(),
+            |ui, range| {
+                for app in &visible[range] {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), theme::size::ROW_HEIGHT_APPS),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.add_space(theme::size::ROW_PADDING);
+
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new(app.display_name()).strong());
+                                ui.label(
+                                    egui::RichText::new(app.package.as_str())
+                                        .small()
+                                        .weak()
+                                        .monospace(),
+                                );
+                            });
+
+                            if app.label.is_none() && app.apk_path.is_some() {
+                                let load = theme::toned_button(
+                                    translations.get("apps.load_name"),
+                                    theme::ButtonTone::Neutral,
+                                    palette,
+                                )
+                                .min_size(egui::vec2(
+                                    theme::size::BUTTON_WIDTH_COMPACT,
+                                    theme::size::CONTROL_HEIGHT,
+                                ));
+
+                                if ui
+                                    .add_enabled(!state.loading_labels, load)
+                                    .on_hover_text(translations.get("apps.load_name_tooltip"))
+                                    .clicked()
+                                {
+                                    action =
+                                        Some(OptimizationAction::LoadName(app.package.clone()));
+                                }
+                            }
+
+                            if app.is_system {
+                                ui.label(
+                                    egui::RichText::new(translations.get("apps.system"))
+                                        .small()
+                                        .color(palette.warning_text),
+                                )
+                                .on_hover_text(translations.get("apps.system_tooltip"));
+                            }
+
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.add_space(theme::size::ROW_PADDING);
+
+                                    let is_whitelisted = state.whitelist.contains_key(&app.package);
+                                    let (label, tone, tooltip) = if is_whitelisted {
+                                        (
+                                            "optimization.unignore",
+                                            theme::ButtonTone::Warning,
+                                            "optimization.unignore_tooltip",
+                                        )
+                                    } else {
+                                        (
+                                            "optimization.ignore",
+                                            theme::ButtonTone::Primary,
+                                            "optimization.ignore_tooltip",
+                                        )
+                                    };
+
+                                    let button =
+                                        theme::toned_button(translations.get(label), tone, palette)
+                                            .min_size(egui::vec2(
+                                                theme::size::BUTTON_WIDTH_COMPACT,
+                                                theme::size::CONTROL_HEIGHT,
+                                            ));
+
+                                    if ui
+                                        .add_enabled(!state.busy.contains(&app.package), button)
+                                        .on_hover_text(translations.get(tooltip))
+                                        .clicked()
+                                    {
+                                        action = Some(OptimizationAction::SetWhitelisted {
+                                            package: app.package.clone(),
+                                            whitelisted: !is_whitelisted,
+                                        });
+                                    }
+                                },
+                            );
+                        },
+                    );
+                }
+            },
+        );
+
+    action
+}

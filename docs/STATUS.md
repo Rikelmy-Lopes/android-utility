@@ -26,7 +26,7 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Per-user cache directory under `%LOCALAPPDATA%` on Windows and `$XDG_DATA_HOME`/`$HOME/.local/share` on Linux.
 - [x] Virtualized application list with fixed-height rows to keep window resizing responsive.
 - [x] Application list filter to show all apps, system apps only, or user-installed apps only.
-- [x] Interface split into tabs: application list and device tools.
+- [x] Interface split into tabs: application list, optimization, and device tools.
 - [x] Process tab showing processes ordered by CPU or memory, with configurable refresh interval.
 - [x] Process tab refresh interval selectable from presets or a custom value in milliseconds, minimum 100 ms.
 - [x] Process tab option to limit the process list to the first 5, 10, or 20 entries.
@@ -45,6 +45,10 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Active recording cancelled when leaving the Process tab or switching devices.
 - [x] Process tab label renamed from "Device" and a fixed spinner slot keeps the toolbar controls from shifting while loading.
 - [x] Resource usage summary dialog widths the CPU and memory columns from the measured header and value text, grows up to the window width, and never clips those columns.
+- [x] Optimization tab listing installed applications with the same all, system, and installed filters; the toggle button shows Doze whitelist state, so no separate status text is shown.
+- [x] Doze whitelist read from `dumpsys deviceidle whitelist` with system and user entries tracked internally.
+- [x] Per-application Doze toggle adding or removing a package from the whitelist through `dumpsys deviceidle whitelist +package` and `-package`.
+- [x] Optimization tab reuses the cached application names and offers the same on-demand name loading.
 
 ## In Progress
 

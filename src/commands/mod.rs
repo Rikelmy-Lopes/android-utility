@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::sync::mpsc;
 
-use android_utility_core::{InstalledApp, PackageName, ProcessUsage};
+use android_utility_core::{DozeWhitelistEntry, InstalledApp, PackageName, ProcessUsage};
 
 use crate::adb::{AdbError, Device, DeviceService};
 
@@ -30,6 +30,20 @@ pub enum Command {
     LoadProcesses {
         /// Device serial.
         serial: String,
+    },
+    /// Reads the Doze whitelist from one device.
+    LoadDozeWhitelist {
+        /// Device serial.
+        serial: String,
+    },
+    /// Adds or removes a package from the Doze whitelist.
+    SetDozeWhitelist {
+        /// Device serial.
+        serial: String,
+        /// Package to update.
+        package: PackageName,
+        /// Whether the package should be ignored by Doze.
+        whitelisted: bool,
     },
     /// Reads application labels for the given packages.
     LoadLabels {
@@ -68,6 +82,8 @@ impl Command {
             Self::LoadDevices => "devices.load",
             Self::LoadApps { .. } => "apps.load",
             Self::LoadProcesses { .. } => "processes.load",
+            Self::LoadDozeWhitelist { .. } => "optimization.load_doze_whitelist",
+            Self::SetDozeWhitelist { .. } => "optimization.set_doze_whitelist",
             Self::LoadLabels { .. } => "labels.load",
             Self::Disable { .. } => "apps.disable",
             Self::Enable { .. } => "apps.enable",
@@ -105,6 +121,24 @@ pub enum CommandEvent {
         serial: String,
         /// Loaded processes or failure.
         result: Result<Vec<ProcessUsage>, AdbError>,
+    },
+    /// Doze whitelist result.
+    DozeWhitelist {
+        /// Device serial the listing belongs to.
+        serial: String,
+        /// Loaded whitelist entries or failure.
+        result: Result<Vec<DozeWhitelistEntry>, AdbError>,
+    },
+    /// Doze whitelist update result.
+    DozeWhitelistChanged {
+        /// Device serial the update belongs to.
+        serial: String,
+        /// Package that was updated.
+        package: PackageName,
+        /// Whether the package should now be ignored by Doze.
+        whitelisted: bool,
+        /// Success or failure.
+        result: Result<(), AdbError>,
     },
     /// A resolved application label.
     Label {
@@ -162,6 +196,23 @@ pub fn execute(service: &dyn DeviceService, command: Command, emit: &mut dyn FnM
             let result = service.processes(&serial);
             emit(CommandEvent::Processes { serial, result });
         }
+        Command::LoadDozeWhitelist { serial } => {
+            let result = service.doze_whitelist(&serial);
+            emit(CommandEvent::DozeWhitelist { serial, result });
+        }
+        Command::SetDozeWhitelist {
+            serial,
+            package,
+            whitelisted,
+        } => {
+            let result = service.set_doze_whitelisted(&serial, &package, whitelisted);
+            emit(CommandEvent::DozeWhitelistChanged {
+                serial,
+                package,
+                whitelisted,
+                result,
+            });
+        }
         Command::LoadLabels { serial, targets } => {
             for target in targets {
                 if let Ok(label) = service.application_label(&serial, &target.apk_path) {
@@ -209,6 +260,8 @@ mod tests {
         devices: Result<Vec<Device>, AdbError>,
         apps: Result<Vec<InstalledApp>, AdbError>,
         processes: Result<Vec<ProcessUsage>, AdbError>,
+        doze_whitelist: Result<Vec<DozeWhitelistEntry>, AdbError>,
+        set_doze_whitelist: Result<(), AdbError>,
         label: Result<Option<String>, AdbError>,
         disable: Result<(), AdbError>,
         enable: Result<(), AdbError>,
@@ -222,6 +275,8 @@ mod tests {
                 devices: Ok(Vec::new()),
                 apps: Ok(Vec::new()),
                 processes: Ok(Vec::new()),
+                doze_whitelist: Ok(Vec::new()),
+                set_doze_whitelist: Ok(()),
                 label: Ok(None),
                 disable: Ok(()),
                 enable: Ok(()),
@@ -260,6 +315,26 @@ mod tests {
                 Ok(processes) => Ok(processes.clone()),
                 Err(error) => Err(error.clone()),
             }
+        }
+
+        fn doze_whitelist(&self, serial: &str) -> Result<Vec<DozeWhitelistEntry>, AdbError> {
+            self.record(format!("doze_whitelist({serial})"));
+            match &self.doze_whitelist {
+                Ok(entries) => Ok(entries.clone()),
+                Err(error) => Err(error.clone()),
+            }
+        }
+
+        fn set_doze_whitelisted(
+            &self,
+            serial: &str,
+            package: &PackageName,
+            whitelisted: bool,
+        ) -> Result<(), AdbError> {
+            self.record(format!(
+                "set_doze_whitelist({serial},{package},{whitelisted})"
+            ));
+            self.set_doze_whitelist.clone()
         }
 
         fn application_label(
@@ -328,6 +403,22 @@ mod tests {
             "processes.load"
         );
         assert_eq!(
+            Command::LoadDozeWhitelist {
+                serial: "serial".to_owned()
+            }
+            .name(),
+            "optimization.load_doze_whitelist"
+        );
+        assert_eq!(
+            Command::SetDozeWhitelist {
+                serial: "serial".to_owned(),
+                package: package(),
+                whitelisted: true,
+            }
+            .name(),
+            "optimization.set_doze_whitelist"
+        );
+        assert_eq!(
             Command::Disable {
                 serial: "serial".to_owned(),
                 package: package()
@@ -386,6 +477,82 @@ mod tests {
         assert_eq!(
             service.calls.lock().unwrap().as_slice(),
             ["processes(serial)"]
+        );
+    }
+
+    #[test]
+    fn forwards_doze_whitelist() {
+        let service = FakeService {
+            doze_whitelist: Ok(vec![DozeWhitelistEntry {
+                package: package(),
+                source: android_utility_core::DozeWhitelistSource::User,
+            }]),
+            ..Default::default()
+        };
+
+        let events = collect(
+            &service,
+            Command::LoadDozeWhitelist {
+                serial: "serial".to_owned(),
+            },
+        );
+
+        assert!(matches!(
+            &events[0],
+            CommandEvent::DozeWhitelist {
+                result: Ok(entries),
+                ..
+            } if entries.len() == 1 && entries[0].package == package()
+        ));
+        assert_eq!(
+            service.calls.lock().unwrap().as_slice(),
+            ["doze_whitelist(serial)"]
+        );
+    }
+
+    #[test]
+    fn forwards_doze_whitelist_updates() {
+        let service = FakeService::default();
+
+        let added = collect(
+            &service,
+            Command::SetDozeWhitelist {
+                serial: "serial".to_owned(),
+                package: package(),
+                whitelisted: true,
+            },
+        );
+        let removed = collect(
+            &service,
+            Command::SetDozeWhitelist {
+                serial: "serial".to_owned(),
+                package: package(),
+                whitelisted: false,
+            },
+        );
+
+        assert!(matches!(
+            &added[0],
+            CommandEvent::DozeWhitelistChanged {
+                whitelisted: true,
+                result: Ok(()),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &removed[0],
+            CommandEvent::DozeWhitelistChanged {
+                whitelisted: false,
+                result: Ok(()),
+                ..
+            }
+        ));
+        assert_eq!(
+            service.calls.lock().unwrap().as_slice(),
+            [
+                "set_doze_whitelist(serial,com.example,true)",
+                "set_doze_whitelist(serial,com.example,false)"
+            ]
         );
     }
 

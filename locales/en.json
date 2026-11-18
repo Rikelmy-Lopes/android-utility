@@ -16,6 +16,7 @@
   "theme.light_tooltip": "Use the light theme.",
 
   "tabs.apps": "Applications",
+  "tabs.optimization": "Optimization",
   "tabs.process": "Process",
 
   "processes.sort": "Sort by",
@@ -62,9 +63,23 @@
   "apps.load_name_tooltip": "Reads this application's APK to resolve its name. Slower than the package name but affects one app only.",
   "apps.loading_names": "Loading application names…",
 
+  "optimization.whitelisted_count": "{count} ignored by Doze",
+  "optimization.refresh": "Refresh whitelist",
+  "optimization.refresh_tooltip": "Reads the Device Idle whitelist from the device again.",
+  "optimization.loading": "Reading the Doze whitelist…",
+  "optimization.unavailable": "The Doze whitelist could not be loaded. Use Refresh whitelist to try again.",
+  "optimization.ignore": "Ignore in Doze",
+  "optimization.ignore_tooltip": "Adds this package to the Device Idle whitelist.",
+  "optimization.unignore": "Stop ignoring",
+  "optimization.unignore_tooltip": "Removes this package from the Device Idle whitelist.",
+
   "status.ready": "Ready",
   "status.devices_loaded": "Devices updated.",
   "status.apps_loaded": "{count} applications loaded.",
+  "status.doze_loaded": "{count} packages ignored by Doze.",
+  "status.doze_change_started": "Updating the Doze whitelist for {package}…",
+  "status.doze_whitelisted_ok": "{name} is now ignored by Doze.",
+  "status.doze_unwhitelisted_ok": "{name} is no longer ignored by Doze.",
   "status.operation_started": "Applying change to {package}…",
   "status.disabled_ok": "{name} disabled.",
   "status.enabled_ok": "{name} enabled.",
