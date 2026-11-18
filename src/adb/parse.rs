@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use android_utility_core::{DozeWhitelistEntry, DozeWhitelistSource, PackageName, ProcessUsage};
+use android_utility_core::{
+    BackgroundExecution, DozeWhitelistEntry, DozeWhitelistSource, PackageName, ProcessUsage,
+};
 
 use super::{DeviceState, process::ProcessOutput};
 
@@ -119,6 +121,44 @@ pub fn parse_doze_whitelist(output: &str) -> Vec<DozeWhitelistEntry> {
             Some(DozeWhitelistEntry { package, source })
         })
         .collect()
+}
+
+/// Parses `cmd appops get <package> RUN_ANY_IN_BACKGROUND` output.
+///
+/// Devices print the value after a colon, an equals sign, or as a bare token.
+/// When no explicit operation is reported, the fallback is `Default mode`.
+/// The first recognized value wins. Unrecognized output yields `None`.
+pub fn parse_background_execution(output: &str) -> Option<BackgroundExecution> {
+    let explicit = output.lines().find_map(|line| {
+        let (_, value) = line.split_once("RUN_ANY_IN_BACKGROUND")?;
+        parse_appops_mode(value)
+    });
+
+    explicit.or_else(|| {
+        output.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+
+            if name.trim().eq_ignore_ascii_case("Default mode") {
+                parse_appops_mode(value)
+            } else {
+                None
+            }
+        })
+    })
+}
+
+fn parse_appops_mode(raw: &str) -> Option<BackgroundExecution> {
+    let value = raw
+        .trim_start_matches([':', '='])
+        .split_whitespace()
+        .next()?
+        .trim_end_matches(';');
+
+    match value.to_ascii_lowercase().as_str() {
+        "allow" => Some(BackgroundExecution::Allowed),
+        "ignore" => Some(BackgroundExecution::Ignored),
+        _ => None,
+    }
 }
 
 fn doze_whitelist_source(raw: &str) -> DozeWhitelistSource {
@@ -533,6 +573,58 @@ mod tests {
         assert_eq!(parse_memory_bytes("512B"), Some(512));
         assert_eq!(parse_memory_bytes("broken"), None);
         assert_eq!(parse_memory_bytes("-1M"), None);
+    }
+
+    #[test]
+    fn parses_background_execution_values() {
+        assert_eq!(
+            parse_background_execution("RUN_ANY_IN_BACKGROUND: allow\n"),
+            Some(BackgroundExecution::Allowed)
+        );
+        assert_eq!(
+            parse_background_execution("Uid mode: RUN_ANY_IN_BACKGROUND: ignore\n"),
+            Some(BackgroundExecution::Ignored)
+        );
+        assert_eq!(
+            parse_background_execution("RUN_ANY_IN_BACKGROUND=ALLOW"),
+            Some(BackgroundExecution::Allowed)
+        );
+        assert_eq!(
+            parse_background_execution("  RUN_ANY_IN_BACKGROUND   ignore  \n"),
+            Some(BackgroundExecution::Ignored)
+        );
+        assert_eq!(
+            parse_background_execution(
+                "RUN_ANY_IN_BACKGROUND: allow; time=+2d22h19m40s676ms ago\n"
+            ),
+            Some(BackgroundExecution::Allowed)
+        );
+        assert_eq!(
+            parse_background_execution("RUN_ANY_IN_BACKGROUND: ignore; time=+1h2m3s456ms ago\n"),
+            Some(BackgroundExecution::Ignored)
+        );
+        assert_eq!(
+            parse_background_execution("No operations.\nDefault mode: allow\n"),
+            Some(BackgroundExecution::Allowed)
+        );
+        assert_eq!(
+            parse_background_execution("No operations.\nDefault mode: ignore\n"),
+            Some(BackgroundExecution::Ignored)
+        );
+    }
+
+    #[test]
+    fn ignores_missing_or_unknown_background_execution_values() {
+        assert_eq!(parse_background_execution(""), None);
+        assert_eq!(parse_background_execution("No operations.\n"), None);
+        assert_eq!(
+            parse_background_execution("RUN_ANY_IN_BACKGROUND: default\n"),
+            None
+        );
+        assert_eq!(
+            parse_background_execution("RUN_ANY_IN_BACKGROUND: deny\n"),
+            None
+        );
     }
 
     #[test]

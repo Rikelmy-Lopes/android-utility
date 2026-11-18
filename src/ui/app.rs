@@ -7,8 +7,8 @@ use eframe::egui;
 use tracing::{debug, info, warn};
 
 use android_utility_core::{
-    DozeWhitelistEntry, DozeWhitelistSource, InstalledApp, PackageName, ProcessSort, ProcessUsage,
-    ResourceSession, SessionSummary, sort_apps, sort_processes,
+    BackgroundExecution, DozeWhitelistEntry, DozeWhitelistSource, InstalledApp, PackageName,
+    ProcessSort, ProcessUsage, ResourceSession, SessionSummary, sort_apps, sort_processes,
 };
 
 use super::apps_panel::{self, AppsAction, AppsFilter, AppsPanel};
@@ -40,6 +40,9 @@ pub struct AndroidUtilityApp {
     doze_whitelist: HashMap<PackageName, DozeWhitelistSource>,
     doze_whitelist_loaded: bool,
     loading_doze_whitelist: bool,
+    background_execution: HashMap<PackageName, BackgroundExecution>,
+    background_execution_loaded: bool,
+    loading_background_execution: bool,
     receivers: Vec<Receiver<CommandEvent>>,
     busy: HashSet<PackageName>,
     loading_devices: bool,
@@ -160,6 +163,9 @@ impl AndroidUtilityApp {
             doze_whitelist: HashMap::new(),
             doze_whitelist_loaded: false,
             loading_doze_whitelist: false,
+            background_execution: HashMap::new(),
+            background_execution_loaded: false,
+            loading_background_execution: false,
             receivers: Vec::new(),
             busy: HashSet::new(),
             loading_devices: false,
@@ -333,6 +339,62 @@ impl AndroidUtilityApp {
             self.service.clone(),
             Command::LoadDozeWhitelist { serial },
         ));
+    }
+
+    fn load_background_execution(&mut self) {
+        if self.loading_background_execution || self.apps.is_empty() {
+            return;
+        }
+
+        let Some(serial) = self.selected_serial().map(str::to_owned) else {
+            return;
+        };
+
+        let packages = self.apps.iter().map(|app| app.package.clone()).collect();
+
+        self.loading_background_execution = true;
+        self.receivers.push(commands::spawn(
+            self.service.clone(),
+            Command::LoadBackgroundExecution { serial, packages },
+        ));
+    }
+
+    fn set_background_execution(&mut self, package: PackageName, policy: BackgroundExecution) {
+        let Some(serial) = self.selected_serial().map(str::to_owned) else {
+            self.set_error(self.translations.get("error.no_device_selected").to_owned());
+            return;
+        };
+
+        if self.busy.contains(&package) {
+            return;
+        }
+
+        self.busy.insert(package.clone());
+        info!(
+            serial = %serial,
+            package = %package,
+            ?policy,
+            "updating background execution policy"
+        );
+        self.set_info(self.translations.format(
+            "status.background_change_started",
+            &[("package", package.as_str())],
+        ));
+
+        self.receivers.push(commands::spawn(
+            self.service.clone(),
+            Command::SetBackgroundExecution {
+                serial,
+                package,
+                policy,
+            },
+        ));
+    }
+
+    fn clear_background_execution(&mut self) {
+        self.background_execution.clear();
+        self.background_execution_loaded = false;
+        self.loading_background_execution = false;
     }
 
     fn set_doze_whitelisted(&mut self, package: PackageName, whitelisted: bool) {
@@ -533,11 +595,17 @@ impl AndroidUtilityApp {
 
     fn handle_optimization_action(&mut self, action: OptimizationAction) {
         match action {
-            OptimizationAction::Refresh => self.load_doze_whitelist(),
+            OptimizationAction::Refresh => {
+                self.load_doze_whitelist();
+                self.load_background_execution();
+            }
             OptimizationAction::SetWhitelisted {
                 package,
                 whitelisted,
             } => self.set_doze_whitelisted(package, whitelisted),
+            OptimizationAction::SetBackgroundExecution { package, policy } => {
+                self.set_background_execution(package, policy);
+            }
         }
     }
 
@@ -584,6 +652,27 @@ impl AndroidUtilityApp {
                 result,
             } => {
                 self.handle_doze_whitelist_changed(&serial, package, whitelisted, result);
+            }
+            CommandEvent::BackgroundExecution {
+                serial,
+                package,
+                result,
+            } => {
+                self.handle_background_execution(&serial, package, result);
+            }
+            CommandEvent::BackgroundExecutionFinished { serial } => {
+                if self.selected_serial() == Some(serial.as_str()) {
+                    self.background_execution_loaded = true;
+                    self.loading_background_execution = false;
+                }
+            }
+            CommandEvent::BackgroundExecutionChanged {
+                serial,
+                package,
+                policy,
+                result,
+            } => {
+                self.handle_background_execution_changed(&serial, package, policy, result);
             }
             CommandEvent::Label {
                 serial,
@@ -684,6 +773,7 @@ impl AndroidUtilityApp {
                     self.loading_processes = false;
                     self.last_process_refresh = None;
                     self.clear_doze_whitelist();
+                    self.clear_background_execution();
                     self.cancel_usage_session();
                 }
 
@@ -710,6 +800,7 @@ impl AndroidUtilityApp {
                 self.loading_processes = false;
                 self.last_process_refresh = None;
                 self.clear_doze_whitelist();
+                self.clear_background_execution();
                 self.cancel_usage_session();
                 self.set_error(self.error_text(&error));
             }
@@ -741,8 +832,14 @@ impl AndroidUtilityApp {
                         .format("status.apps_loaded", &[("count", &count)]),
                 );
 
-                if self.selected_tab == Tab::Optimization && !self.doze_whitelist_loaded {
-                    self.load_doze_whitelist();
+                if self.selected_tab == Tab::Optimization {
+                    if !self.doze_whitelist_loaded {
+                        self.load_doze_whitelist();
+                    }
+
+                    if !self.background_execution_loaded {
+                        self.load_background_execution();
+                    }
                 }
             }
             Err(error) => {
@@ -849,6 +946,59 @@ impl AndroidUtilityApp {
         }
     }
 
+    fn handle_background_execution(
+        &mut self,
+        serial: &str,
+        package: PackageName,
+        result: Result<Option<BackgroundExecution>, AdbError>,
+    ) {
+        if self.selected_serial() != Some(serial) {
+            return;
+        }
+
+        match result {
+            Ok(Some(policy)) => {
+                self.background_execution.insert(package, policy);
+            }
+            Ok(None) => {
+                debug!(%package, "background execution policy not reported");
+            }
+            Err(error) => {
+                warn!(%package, %error, "background execution policy could not be read");
+            }
+        }
+    }
+
+    fn handle_background_execution_changed(
+        &mut self,
+        serial: &str,
+        package: PackageName,
+        policy: BackgroundExecution,
+        result: Result<(), AdbError>,
+    ) {
+        if self.selected_serial() != Some(serial) {
+            return;
+        }
+
+        self.busy.remove(&package);
+
+        match result {
+            Ok(()) => {
+                self.background_execution.insert(package.clone(), policy);
+
+                let name = self.display_name_for(&package);
+                let message_key = match policy {
+                    BackgroundExecution::Allowed => "status.background_allowed_ok",
+                    BackgroundExecution::Ignored => "status.background_ignored_ok",
+                };
+                self.set_success(self.translations.format(message_key, &[("name", &name)]));
+            }
+            Err(error) => {
+                self.set_error(self.error_text(&error));
+            }
+        }
+    }
+
     fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
         let mut requested_theme = None;
 
@@ -896,6 +1046,7 @@ impl AndroidUtilityApp {
                             self.loading_processes = false;
                             self.last_process_refresh = None;
                             self.clear_doze_whitelist();
+                            self.clear_background_execution();
                             self.cancel_usage_session();
                             self.load_apps();
                         }
@@ -1127,11 +1278,13 @@ impl eframe::App for AndroidUtilityApp {
                         OptimizationPanel {
                             apps: &self.apps,
                             whitelist: &self.doze_whitelist,
+                            background: &self.background_execution,
                             filter: &mut self.optimization_filter,
                             search: &mut self.optimization_search,
                             busy: &self.busy,
                             loading_apps: self.loading_apps,
                             loading_whitelist: self.loading_doze_whitelist,
+                            loading_background: self.loading_background_execution,
                             whitelist_loaded: self.doze_whitelist_loaded,
                             translations,
                         },
@@ -1144,6 +1297,7 @@ impl eframe::App for AndroidUtilityApp {
 
         if previous_tab != Tab::Optimization && selected_tab == Tab::Optimization {
             self.load_doze_whitelist();
+            self.load_background_execution();
         }
 
         if selected_tab != Tab::Device {

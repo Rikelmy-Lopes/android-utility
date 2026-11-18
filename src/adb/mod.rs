@@ -14,15 +14,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use android_utility_core::{
-    DozeWhitelistEntry, InstalledApp, PackageName, ProcessUsage, sort_apps,
+    BackgroundExecution, DozeWhitelistEntry, InstalledApp, PackageName, ProcessUsage, sort_apps,
 };
 
 pub use error::AdbError;
 pub use process::ProcessOutput;
 
 use parse::{
-    merge_package_paths, parse_devices, parse_doze_whitelist, parse_package_entries,
-    parse_package_names, parse_top_processes, permission_denied, pm_failure, uninstall_succeeded,
+    merge_package_paths, parse_background_execution, parse_devices, parse_doze_whitelist,
+    parse_package_entries, parse_package_names, parse_top_processes, permission_denied, pm_failure,
+    uninstall_succeeded,
 };
 
 /// ADB operations required by application commands.
@@ -48,6 +49,21 @@ pub trait DeviceService: Send + Sync {
         serial: &str,
         package: &PackageName,
         whitelisted: bool,
+    ) -> Result<(), AdbError>;
+
+    /// Reads the background execution policy of one package.
+    fn background_execution(
+        &self,
+        serial: &str,
+        package: &PackageName,
+    ) -> Result<Option<BackgroundExecution>, AdbError>;
+
+    /// Changes the background execution policy of one package.
+    fn set_background_execution(
+        &self,
+        serial: &str,
+        package: &PackageName,
+        policy: BackgroundExecution,
     ) -> Result<(), AdbError>;
 
     /// Reads the application label from the APK at `apk_path`.
@@ -298,6 +314,60 @@ impl DeviceService for Adb {
         }
     }
 
+    fn background_execution(
+        &self,
+        serial: &str,
+        package: &PackageName,
+    ) -> Result<Option<BackgroundExecution>, AdbError> {
+        let output = self.shell(
+            serial,
+            &[
+                "cmd",
+                "appops",
+                "get",
+                package.as_str(),
+                "RUN_ANY_IN_BACKGROUND",
+            ],
+        )?;
+
+        if !output.succeeded() {
+            return Err(AdbError::command_failed(output.diagnostics()));
+        }
+
+        Ok(parse_background_execution(&output.stdout))
+    }
+
+    fn set_background_execution(
+        &self,
+        serial: &str,
+        package: &PackageName,
+        policy: BackgroundExecution,
+    ) -> Result<(), AdbError> {
+        self.ensure_device_ready(serial)?;
+
+        let mode = match policy {
+            BackgroundExecution::Allowed => "allow",
+            BackgroundExecution::Ignored => "ignore",
+        };
+        let output = self.shell(
+            serial,
+            &[
+                "cmd",
+                "appops",
+                "set",
+                package.as_str(),
+                "RUN_ANY_IN_BACKGROUND",
+                mode,
+            ],
+        )?;
+
+        if appops_command_succeeded(&output) {
+            Ok(())
+        } else {
+            Err(AdbError::command_failed(output.diagnostics()))
+        }
+    }
+
     fn application_label(&self, serial: &str, apk_path: &str) -> Result<Option<String>, AdbError> {
         let local_path = self.temporary_apk_path()?;
         let local_argument = local_path.to_string_lossy().into_owned();
@@ -377,6 +447,12 @@ fn doze_whitelist_command_succeeded(output: &ProcessOutput) -> bool {
             .contains("unknown package")
 }
 
+fn appops_command_succeeded(output: &ProcessOutput) -> bool {
+    let report = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
+
+    output.succeeded() && !report.contains("error") && !report.contains("exception")
+}
+
 fn pm_error(output: &ProcessOutput) -> AdbError {
     let message = pm_failure(output).unwrap_or_else(|| {
         let diagnostics = output.diagnostics();
@@ -405,6 +481,20 @@ mod tests {
             stderr: String::new(),
             timed_out: false,
         }
+    }
+
+    #[test]
+    fn appops_change_requires_success_without_reported_errors() {
+        assert!(appops_command_succeeded(&output("", 0)));
+        assert!(!appops_command_succeeded(&output("", 1)));
+        assert!(!appops_command_succeeded(&output(
+            "Error: Unknown package: com.example",
+            0
+        )));
+        assert!(!appops_command_succeeded(&output(
+            "java.lang.SecurityException: denied",
+            0
+        )));
     }
 
     #[test]

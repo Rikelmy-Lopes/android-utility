@@ -3,7 +3,9 @@
 use std::sync::Arc;
 use std::sync::mpsc;
 
-use android_utility_core::{DozeWhitelistEntry, InstalledApp, PackageName, ProcessUsage};
+use android_utility_core::{
+    BackgroundExecution, DozeWhitelistEntry, InstalledApp, PackageName, ProcessUsage,
+};
 
 use crate::adb::{AdbError, Device, DeviceService};
 
@@ -35,6 +37,22 @@ pub enum Command {
     LoadDozeWhitelist {
         /// Device serial.
         serial: String,
+    },
+    /// Reads the background execution policy for the given packages.
+    LoadBackgroundExecution {
+        /// Device serial.
+        serial: String,
+        /// Packages to query.
+        packages: Vec<PackageName>,
+    },
+    /// Changes the background execution policy of one package.
+    SetBackgroundExecution {
+        /// Device serial.
+        serial: String,
+        /// Package to update.
+        package: PackageName,
+        /// Requested policy.
+        policy: BackgroundExecution,
     },
     /// Adds or removes a package from the Doze whitelist.
     SetDozeWhitelist {
@@ -83,6 +101,8 @@ impl Command {
             Self::LoadApps { .. } => "apps.load",
             Self::LoadProcesses { .. } => "processes.load",
             Self::LoadDozeWhitelist { .. } => "optimization.load_doze_whitelist",
+            Self::LoadBackgroundExecution { .. } => "optimization.load_background_execution",
+            Self::SetBackgroundExecution { .. } => "optimization.set_background_execution",
             Self::SetDozeWhitelist { .. } => "optimization.set_doze_whitelist",
             Self::LoadLabels { .. } => "labels.load",
             Self::Disable { .. } => "apps.disable",
@@ -128,6 +148,31 @@ pub enum CommandEvent {
         serial: String,
         /// Loaded whitelist entries or failure.
         result: Result<Vec<DozeWhitelistEntry>, AdbError>,
+    },
+    /// Background execution policy of one package.
+    BackgroundExecution {
+        /// Device serial the policy belongs to.
+        serial: String,
+        /// Package the policy belongs to.
+        package: PackageName,
+        /// Policy or failure.
+        result: Result<Option<BackgroundExecution>, AdbError>,
+    },
+    /// All requested background execution policies have been read.
+    BackgroundExecutionFinished {
+        /// Device serial the policies belong to.
+        serial: String,
+    },
+    /// Background execution policy update result.
+    BackgroundExecutionChanged {
+        /// Device serial the update belongs to.
+        serial: String,
+        /// Package that was updated.
+        package: PackageName,
+        /// Requested policy.
+        policy: BackgroundExecution,
+        /// Success or failure.
+        result: Result<(), AdbError>,
     },
     /// Doze whitelist update result.
     DozeWhitelistChanged {
@@ -200,6 +245,31 @@ pub fn execute(service: &dyn DeviceService, command: Command, emit: &mut dyn FnM
             let result = service.doze_whitelist(&serial);
             emit(CommandEvent::DozeWhitelist { serial, result });
         }
+        Command::LoadBackgroundExecution { serial, packages } => {
+            for package in packages {
+                let result = service.background_execution(&serial, &package);
+                emit(CommandEvent::BackgroundExecution {
+                    serial: serial.clone(),
+                    package,
+                    result,
+                });
+            }
+
+            emit(CommandEvent::BackgroundExecutionFinished { serial });
+        }
+        Command::SetBackgroundExecution {
+            serial,
+            package,
+            policy,
+        } => {
+            let result = service.set_background_execution(&serial, &package, policy);
+            emit(CommandEvent::BackgroundExecutionChanged {
+                serial,
+                package,
+                policy,
+                result,
+            });
+        }
         Command::SetDozeWhitelist {
             serial,
             package,
@@ -262,6 +332,8 @@ mod tests {
         processes: Result<Vec<ProcessUsage>, AdbError>,
         doze_whitelist: Result<Vec<DozeWhitelistEntry>, AdbError>,
         set_doze_whitelist: Result<(), AdbError>,
+        background_execution: Result<Option<BackgroundExecution>, AdbError>,
+        set_background_execution: Result<(), AdbError>,
         label: Result<Option<String>, AdbError>,
         disable: Result<(), AdbError>,
         enable: Result<(), AdbError>,
@@ -277,6 +349,8 @@ mod tests {
                 processes: Ok(Vec::new()),
                 doze_whitelist: Ok(Vec::new()),
                 set_doze_whitelist: Ok(()),
+                background_execution: Ok(None),
+                set_background_execution: Ok(()),
                 label: Ok(None),
                 disable: Ok(()),
                 enable: Ok(()),
@@ -335,6 +409,30 @@ mod tests {
                 "set_doze_whitelist({serial},{package},{whitelisted})"
             ));
             self.set_doze_whitelist.clone()
+        }
+
+        fn background_execution(
+            &self,
+            serial: &str,
+            package: &PackageName,
+        ) -> Result<Option<BackgroundExecution>, AdbError> {
+            self.record(format!("background_execution({serial},{package})"));
+            match &self.background_execution {
+                Ok(policy) => Ok(*policy),
+                Err(error) => Err(error.clone()),
+            }
+        }
+
+        fn set_background_execution(
+            &self,
+            serial: &str,
+            package: &PackageName,
+            policy: BackgroundExecution,
+        ) -> Result<(), AdbError> {
+            self.record(format!(
+                "set_background_execution({serial},{package},{policy:?})"
+            ));
+            self.set_background_execution.clone()
         }
 
         fn application_label(
@@ -408,6 +506,23 @@ mod tests {
             }
             .name(),
             "optimization.load_doze_whitelist"
+        );
+        assert_eq!(
+            Command::LoadBackgroundExecution {
+                serial: "serial".to_owned(),
+                packages: vec![package()],
+            }
+            .name(),
+            "optimization.load_background_execution"
+        );
+        assert_eq!(
+            Command::SetBackgroundExecution {
+                serial: "serial".to_owned(),
+                package: package(),
+                policy: BackgroundExecution::Ignored,
+            }
+            .name(),
+            "optimization.set_background_execution"
         );
         assert_eq!(
             Command::SetDozeWhitelist {
@@ -507,6 +622,69 @@ mod tests {
         assert_eq!(
             service.calls.lock().unwrap().as_slice(),
             ["doze_whitelist(serial)"]
+        );
+    }
+
+    #[test]
+    fn forwards_background_execution_for_each_package() {
+        let service = FakeService {
+            background_execution: Ok(Some(BackgroundExecution::Ignored)),
+            ..Default::default()
+        };
+
+        let events = collect(
+            &service,
+            Command::LoadBackgroundExecution {
+                serial: "serial".to_owned(),
+                packages: vec![package(), PackageName::parse("com.other").unwrap()],
+            },
+        );
+
+        assert_eq!(events.len(), 3);
+        assert!(matches!(
+            &events[0],
+            CommandEvent::BackgroundExecution {
+                result: Ok(Some(BackgroundExecution::Ignored)),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &events[2],
+            CommandEvent::BackgroundExecutionFinished { .. }
+        ));
+        assert_eq!(
+            service.calls.lock().unwrap().as_slice(),
+            [
+                "background_execution(serial,com.example)",
+                "background_execution(serial,com.other)"
+            ]
+        );
+    }
+
+    #[test]
+    fn forwards_background_execution_updates() {
+        let service = FakeService::default();
+
+        let events = collect(
+            &service,
+            Command::SetBackgroundExecution {
+                serial: "serial".to_owned(),
+                package: package(),
+                policy: BackgroundExecution::Allowed,
+            },
+        );
+
+        assert!(matches!(
+            &events[0],
+            CommandEvent::BackgroundExecutionChanged {
+                policy: BackgroundExecution::Allowed,
+                result: Ok(()),
+                ..
+            }
+        ));
+        assert_eq!(
+            service.calls.lock().unwrap().as_slice(),
+            ["set_background_execution(serial,com.example,Allowed)"]
         );
     }
 

@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use eframe::egui;
 
-use android_utility_core::{DozeWhitelistSource, InstalledApp, PackageName};
+use android_utility_core::{BackgroundExecution, DozeWhitelistSource, InstalledApp, PackageName};
 
 use crate::i18n::Translations;
 
@@ -17,6 +17,8 @@ pub struct OptimizationPanel<'a> {
     pub apps: &'a [InstalledApp],
     /// Whitelisted packages and their origin.
     pub whitelist: &'a HashMap<PackageName, DozeWhitelistSource>,
+    /// Known background execution policies.
+    pub background: &'a HashMap<PackageName, BackgroundExecution>,
     /// Package subset selected by the user.
     pub filter: &'a mut AppsFilter,
     /// Search query edited by the user.
@@ -27,6 +29,8 @@ pub struct OptimizationPanel<'a> {
     pub loading_apps: bool,
     /// Whether the Doze whitelist is being loaded.
     pub loading_whitelist: bool,
+    /// Whether background execution policies are being loaded.
+    pub loading_background: bool,
     /// Whether the Doze whitelist was loaded successfully.
     pub whitelist_loaded: bool,
     /// Translation source.
@@ -44,6 +48,13 @@ pub enum OptimizationAction {
         package: PackageName,
         /// Whether the package should be ignored by Doze.
         whitelisted: bool,
+    },
+    /// Change the background execution policy of one package.
+    SetBackgroundExecution {
+        /// Package to update.
+        package: PackageName,
+        /// Requested policy.
+        policy: BackgroundExecution,
     },
 }
 
@@ -100,11 +111,19 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
         );
 
         if ui
-            .add_enabled(!state.loading_whitelist, refresh)
+            .add_enabled(
+                !state.loading_whitelist && !state.loading_background,
+                refresh,
+            )
             .on_hover_text(translations.get("optimization.refresh_tooltip"))
             .clicked()
         {
             action = Some(OptimizationAction::Refresh);
+        }
+
+        if state.loading_background {
+            ui.spinner();
+            ui.label(translations.get("optimization.background_loading"));
         }
     });
 
@@ -132,7 +151,6 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
                 ui.label(translations.get("optimization.unavailable"));
             }
         });
-        return action;
     }
 
     let query = state.search.trim().to_lowercase();
@@ -215,7 +233,11 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
                                             ));
 
                                     if ui
-                                        .add_enabled(!state.busy.contains(&app.package), button)
+                                        .add_enabled(
+                                            state.whitelist_loaded
+                                                && !state.busy.contains(&app.package),
+                                            button,
+                                        )
                                         .on_hover_text(translations.get(tooltip))
                                         .clicked()
                                     {
@@ -224,6 +246,71 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
                                             whitelisted: !is_whitelisted,
                                         });
                                     }
+
+                                    let background = state.background.get(&app.package).copied();
+                                    let (status_key, status_color) = match background {
+                                        Some(BackgroundExecution::Allowed) => (
+                                            "optimization.background_allowed",
+                                            palette.success_text,
+                                        ),
+                                        Some(BackgroundExecution::Ignored) => (
+                                            "optimization.background_ignored",
+                                            palette.warning_text,
+                                        ),
+                                        None => (
+                                            "optimization.background_unknown",
+                                            palette.text_secondary,
+                                        ),
+                                    };
+
+                                    let target = match background {
+                                        Some(BackgroundExecution::Allowed) => Some((
+                                            BackgroundExecution::Ignored,
+                                            "optimization.background_ignore",
+                                            "optimization.background_ignore_tooltip",
+                                            theme::ButtonTone::Warning,
+                                        )),
+                                        Some(BackgroundExecution::Ignored) => Some((
+                                            BackgroundExecution::Allowed,
+                                            "optimization.background_allow",
+                                            "optimization.background_allow_tooltip",
+                                            theme::ButtonTone::Primary,
+                                        )),
+                                        None => None,
+                                    };
+
+                                    if let Some((policy, label, tooltip, tone)) = target {
+                                        let policy_button = theme::toned_button(
+                                            translations.get(label),
+                                            tone,
+                                            palette,
+                                        )
+                                        .min_size(egui::vec2(
+                                            theme::size::BUTTON_WIDTH_COMPACT,
+                                            theme::size::CONTROL_HEIGHT,
+                                        ));
+
+                                        if ui
+                                            .add_enabled(
+                                                !state.busy.contains(&app.package),
+                                                policy_button,
+                                            )
+                                            .on_hover_text(translations.get(tooltip))
+                                            .clicked()
+                                        {
+                                            action =
+                                                Some(OptimizationAction::SetBackgroundExecution {
+                                                    package: app.package.clone(),
+                                                    policy,
+                                                });
+                                        }
+                                    }
+
+                                    ui.label(
+                                        egui::RichText::new(translations.get(status_key))
+                                            .small()
+                                            .color(status_color),
+                                    );
                                 },
                             );
                         },
