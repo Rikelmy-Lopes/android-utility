@@ -48,7 +48,8 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Optimization tab listing installed applications with the same all, system, and installed filters; the toggle button shows Doze whitelist state, so no separate status text is shown.
 - [x] Doze whitelist read from `dumpsys deviceidle whitelist` with system and user entries tracked internally.
 - [x] Per-application Doze toggle adding or removing a package from the whitelist through `dumpsys deviceidle whitelist +package` and `-package`.
-- [x] Optimization tab reuses the cached application names and offers the same on-demand name loading.
+- [x] Optimization tab reuses the cached application names without its own name-loading controls.
+- [x] Applications tab asks for confirmation before loading every application name, warning that the operation is slow.
 
 ## In Progress
 

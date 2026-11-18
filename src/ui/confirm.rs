@@ -107,6 +107,64 @@ pub fn show(
     response
 }
 
+/// Renders the confirmation for the slow application-name load.
+///
+/// Reading every APK can take a long time, so the user must opt in.
+pub fn show_load_names(
+    context: &egui::Context,
+    translations: &Translations,
+) -> Option<ConfirmResponse> {
+    let mut response = None;
+
+    let modal = egui::Modal::new(egui::Id::unique("load_names_confirmation")).show(context, |ui| {
+        let palette = theme::palette(ui);
+
+        ui.set_width(420.0);
+        ui.heading(translations.get("confirm.load_names_title"));
+        ui.add_space(theme::size::SPACING_SM);
+        ui.colored_label(
+            palette.warning_text,
+            translations.get("confirm.load_names_message"),
+        );
+
+        ui.add_space(theme::size::SPACING_MD);
+        ui.horizontal(|ui| {
+            let button_size = egui::vec2(112.0, theme::size::CONTROL_HEIGHT + 2.0);
+
+            if ui
+                .add(
+                    theme::toned_button(
+                        translations.get("confirm.cancel"),
+                        theme::ButtonTone::Neutral,
+                        palette,
+                    )
+                    .min_size(button_size),
+                )
+                .clicked()
+            {
+                response = Some(ConfirmResponse::Cancelled);
+            }
+
+            let confirm = theme::toned_button(
+                translations.get("apps.load_names"),
+                theme::ButtonTone::Primary,
+                palette,
+            )
+            .min_size(button_size);
+
+            if ui.add(confirm).clicked() {
+                response = Some(ConfirmResponse::Confirmed);
+            }
+        });
+    });
+
+    if response.is_none() && modal.should_close() {
+        response = Some(ConfirmResponse::Cancelled);
+    }
+
+    response
+}
+
 fn title_key(kind: ConfirmKind) -> &'static str {
     match kind {
         ConfirmKind::Disable => "confirm.disable_title",

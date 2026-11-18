@@ -46,6 +46,7 @@ pub struct AndroidUtilityApp {
     loading_apps: bool,
     labels_pending: bool,
     confirmation: Option<PendingConfirmation>,
+    load_names_confirmation: bool,
     selected_tab: Tab,
     processes: Vec<ProcessUsage>,
     process_sort: ProcessSort,
@@ -165,6 +166,7 @@ impl AndroidUtilityApp {
             loading_apps: false,
             labels_pending: false,
             confirmation: None,
+            load_names_confirmation: false,
             selected_tab: Tab::Apps,
             processes: Vec::new(),
             process_sort: ProcessSort::Cpu,
@@ -521,7 +523,7 @@ impl AndroidUtilityApp {
                 self.request_confirmation(ConfirmKind::Uninstall, package);
             }
             AppsAction::LoadNames => {
-                self.load_missing_labels();
+                self.load_names_confirmation = true;
             }
             AppsAction::LoadName(package) => {
                 self.load_label(package);
@@ -532,8 +534,6 @@ impl AndroidUtilityApp {
     fn handle_optimization_action(&mut self, action: OptimizationAction) {
         match action {
             OptimizationAction::Refresh => self.load_doze_whitelist(),
-            OptimizationAction::LoadNames => self.load_missing_labels(),
-            OptimizationAction::LoadName(package) => self.load_label(package),
             OptimizationAction::SetWhitelisted {
                 package,
                 whitelisted,
@@ -1027,6 +1027,23 @@ impl AndroidUtilityApp {
         }
     }
 
+    fn show_load_names_confirmation(&mut self, context: &egui::Context) {
+        if !self.load_names_confirmation {
+            return;
+        }
+
+        match confirm::show_load_names(context, &self.translations) {
+            Some(ConfirmResponse::Confirmed) => {
+                self.load_names_confirmation = false;
+                self.load_missing_labels();
+            }
+            Some(ConfirmResponse::Cancelled) => {
+                self.load_names_confirmation = false;
+            }
+            None => {}
+        }
+    }
+
     fn show_usage_summary(&mut self, context: &egui::Context) {
         let Some(summary) = self.usage_summary.as_ref() else {
             return;
@@ -1116,7 +1133,6 @@ impl eframe::App for AndroidUtilityApp {
                             loading_apps: self.loading_apps,
                             loading_whitelist: self.loading_doze_whitelist,
                             whitelist_loaded: self.doze_whitelist_loaded,
-                            loading_labels: self.labels_pending,
                             translations,
                         },
                     );
@@ -1169,6 +1185,7 @@ impl eframe::App for AndroidUtilityApp {
         }
 
         self.show_confirmation(ui.ctx());
+        self.show_load_names_confirmation(ui.ctx());
         self.show_usage_summary(ui.ctx());
 
         let repaint_delay = if selected_tab == Tab::Device {

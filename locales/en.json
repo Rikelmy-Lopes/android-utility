@@ -109,5 +109,7 @@
   "confirm.system_warning": "Warning: this is a system application. Removing it may brick the device.",
   "confirm.cancel": "Cancel",
   "confirm.confirm": "Confirm",
-  "confirm.close": "Close"
+  "confirm.close": "Close",
+  "confirm.load_names_title": "Load application names",
+  "confirm.load_names_message": "Reading every APK from the device can take a long time, especially with many applications installed. Load all application names now?"
 }

@@ -29,8 +29,6 @@ pub struct OptimizationPanel<'a> {
     pub loading_whitelist: bool,
     /// Whether the Doze whitelist was loaded successfully.
     pub whitelist_loaded: bool,
-    /// Whether application labels are being resolved.
-    pub loading_labels: bool,
     /// Translation source.
     pub translations: &'a Translations,
 }
@@ -40,10 +38,6 @@ pub struct OptimizationPanel<'a> {
 pub enum OptimizationAction {
     /// Read the Doze whitelist again.
     Refresh,
-    /// Read application names for the listed packages.
-    LoadNames,
-    /// Read the application name for one package.
-    LoadName(PackageName),
     /// Add or remove one package from the Doze whitelist.
     SetWhitelisted {
         /// Package to update.
@@ -111,24 +105,6 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
             .clicked()
         {
             action = Some(OptimizationAction::Refresh);
-        }
-
-        if state.loading_labels {
-            ui.spinner();
-            ui.label(translations.get("apps.loading_names"));
-        } else if ui
-            .add_enabled(
-                !state.apps.is_empty(),
-                theme::toned_button(
-                    translations.get("apps.load_names"),
-                    theme::ButtonTone::Neutral,
-                    palette,
-                ),
-            )
-            .on_hover_text(translations.get("apps.load_names_tooltip"))
-            .clicked()
-        {
-            action = Some(OptimizationAction::LoadNames);
         }
     });
 
@@ -201,27 +177,6 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
                                         .monospace(),
                                 );
                             });
-
-                            if app.label.is_none() && app.apk_path.is_some() {
-                                let load = theme::toned_button(
-                                    translations.get("apps.load_name"),
-                                    theme::ButtonTone::Neutral,
-                                    palette,
-                                )
-                                .min_size(egui::vec2(
-                                    theme::size::BUTTON_WIDTH_COMPACT,
-                                    theme::size::CONTROL_HEIGHT,
-                                ));
-
-                                if ui
-                                    .add_enabled(!state.loading_labels, load)
-                                    .on_hover_text(translations.get("apps.load_name_tooltip"))
-                                    .clicked()
-                                {
-                                    action =
-                                        Some(OptimizationAction::LoadName(app.package.clone()));
-                                }
-                            }
 
                             if app.is_system {
                                 ui.label(
