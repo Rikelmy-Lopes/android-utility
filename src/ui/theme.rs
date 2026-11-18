@@ -80,9 +80,9 @@ impl Palette {
         text_primary: Color32::from_rgb(232, 235, 240),
         text_secondary: Color32::from_rgb(154, 164, 178),
         selection: Color32::from_rgb(52, 84, 138),
-        accent: Color32::from_rgb(76, 141, 255),
-        accent_hover: Color32::from_rgb(107, 161, 255),
-        on_accent: Color32::from_rgb(8, 16, 30),
+        accent: Color32::from_rgb(37, 99, 235),
+        accent_hover: Color32::from_rgb(29, 78, 216),
+        on_accent: Color32::WHITE,
         danger: Color32::from_rgb(214, 69, 69),
         danger_hover: Color32::from_rgb(226, 92, 92),
         on_danger: Color32::WHITE,
@@ -375,6 +375,40 @@ mod tests {
             assert_ne!(palette.success, palette.on_success);
             assert_ne!(palette.accent, palette.on_accent);
         }
+    }
+
+    #[test]
+    fn primary_button_text_reaches_readable_contrast() {
+        for palette in [&Palette::DARK, &Palette::LIGHT] {
+            let ratio = contrast_ratio(palette.accent, palette.on_accent);
+            assert!(ratio >= 4.5, "primary button contrast is only {ratio:.2}");
+        }
+    }
+
+    fn contrast_ratio(first: Color32, second: Color32) -> f64 {
+        let first = relative_luminance(first);
+        let second = relative_luminance(second);
+        let (lighter, darker) = if first > second {
+            (first, second)
+        } else {
+            (second, first)
+        };
+
+        (lighter + 0.05) / (darker + 0.05)
+    }
+
+    fn relative_luminance(color: Color32) -> f64 {
+        let channel = |value: u8| {
+            let value = f64::from(value) / 255.0;
+
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+
+        0.2126 * channel(color.r()) + 0.7152 * channel(color.g()) + 0.0722 * channel(color.b())
     }
 
     #[test]

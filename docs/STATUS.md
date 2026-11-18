@@ -35,6 +35,7 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Centralized design tokens for palettes, semantic colors, font sizes, spacing, radii, and control sizes in `src/ui/theme.rs`.
 - [x] Consistent panel spacing, row alignment, and rounded buttons and input fields.
 - [x] Semantic action colors: red for uninstall and errors, amber for warnings, green for enable and success confirmations.
+- [x] Dark theme primary buttons use white text on a darker accent fill with at least 4.5:1 contrast.
 - [x] Dark and light themes with a toolbar theme switcher.
 - [x] Selected theme persisted in `settings.json` below the per-user application data directory.
 - [x] Process tab session recording that tracks per-process CPU and resident memory samples on every process refresh tick.
