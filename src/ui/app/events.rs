@@ -116,6 +116,8 @@ impl AndroidUtilityApp {
                 match outcome {
                     Ok(outcome) => {
                         let name = self.display_name_for(&package);
+                        apply_operation_outcome(&mut self.apps, &package, outcome);
+
                         let message = match outcome {
                             OperationOutcome::Disabled => self
                                 .translations
@@ -130,7 +132,7 @@ impl AndroidUtilityApp {
 
                         self.set_success(message);
                         info!(package = %package, ?outcome, "operation succeeded");
-                        self.load_apps();
+                        self.load_apps_after_operation();
                     }
                     Err(error) => {
                         let text = self.error_text(&error);
@@ -229,6 +231,11 @@ impl AndroidUtilityApp {
                 self.apps.clear();
                 self.set_error(self.error_text(&error));
             }
+        }
+
+        if self.apps_reload_pending {
+            self.apps_reload_pending = false;
+            self.load_apps();
         }
     }
 
@@ -385,5 +392,88 @@ impl AndroidUtilityApp {
                 self.set_error(self.error_text(&error));
             }
         }
+    }
+}
+
+/// Applies the local state change of a completed package operation.
+///
+/// The device listing is reloaded afterwards, but this keeps the visible row in
+/// sync immediately instead of waiting for the next full listing.
+fn apply_operation_outcome(
+    apps: &mut Vec<InstalledApp>,
+    package: &PackageName,
+    outcome: OperationOutcome,
+) {
+    match outcome {
+        OperationOutcome::Disabled => {
+            if let Some(app) = apps.iter_mut().find(|app| &app.package == package) {
+                app.is_disabled = true;
+            }
+        }
+        OperationOutcome::Enabled => {
+            if let Some(app) = apps.iter_mut().find(|app| &app.package == package) {
+                app.is_disabled = false;
+            }
+        }
+        OperationOutcome::Uninstalled => {
+            apps.retain(|app| &app.package != package);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app(package: &str, is_disabled: bool) -> InstalledApp {
+        InstalledApp {
+            package: PackageName::parse(package).expect("valid package name"),
+            label: None,
+            apk_path: None,
+            is_system: false,
+            is_disabled,
+        }
+    }
+
+    #[test]
+    fn disabling_updates_the_matching_application_only() {
+        let package = PackageName::parse("com.example").expect("valid package name");
+        let mut apps = vec![app("com.example", false), app("com.other", false)];
+
+        apply_operation_outcome(&mut apps, &package, OperationOutcome::Disabled);
+
+        assert!(apps[0].is_disabled);
+        assert!(!apps[1].is_disabled);
+    }
+
+    #[test]
+    fn enabling_clears_the_disabled_flag() {
+        let package = PackageName::parse("com.example").expect("valid package name");
+        let mut apps = vec![app("com.example", true)];
+
+        apply_operation_outcome(&mut apps, &package, OperationOutcome::Enabled);
+
+        assert!(!apps[0].is_disabled);
+    }
+
+    #[test]
+    fn uninstalling_removes_the_application() {
+        let package = PackageName::parse("com.example").expect("valid package name");
+        let mut apps = vec![app("com.example", false), app("com.other", false)];
+
+        apply_operation_outcome(&mut apps, &package, OperationOutcome::Uninstalled);
+
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].package.as_str(), "com.other");
+    }
+
+    #[test]
+    fn unknown_package_leaves_the_list_unchanged() {
+        let package = PackageName::parse("com.missing").expect("valid package name");
+        let mut apps = vec![app("com.example", false)];
+
+        apply_operation_outcome(&mut apps, &package, OperationOutcome::Disabled);
+
+        assert_eq!(apps, vec![app("com.example", false)]);
     }
 }

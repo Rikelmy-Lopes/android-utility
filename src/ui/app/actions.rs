@@ -37,6 +37,19 @@ impl AndroidUtilityApp {
         ));
     }
 
+    /// Reloads the application list after a package operation.
+    ///
+    /// The list is reloaded only when no load is already in flight. Otherwise the
+    /// request is queued so an in-flight snapshot cannot overwrite the updated
+    /// package state.
+    pub(super) fn load_apps_after_operation(&mut self) {
+        if self.loading_apps {
+            self.apps_reload_pending = true;
+        } else {
+            self.load_apps();
+        }
+    }
+
     pub(super) fn load_processes(&mut self) {
         if self.loading_processes {
             return;

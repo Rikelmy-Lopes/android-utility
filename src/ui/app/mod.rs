@@ -49,6 +49,7 @@ pub struct AndroidUtilityApp {
     busy: HashSet<PackageName>,
     loading_devices: bool,
     loading_apps: bool,
+    apps_reload_pending: bool,
     labels_pending: bool,
     confirmation: Option<PendingConfirmation>,
     load_names_confirmation: bool,
@@ -172,6 +173,7 @@ impl AndroidUtilityApp {
             busy: HashSet::new(),
             loading_devices: false,
             loading_apps: false,
+            apps_reload_pending: false,
             labels_pending: false,
             confirmation: None,
             load_names_confirmation: false,
@@ -291,6 +293,7 @@ impl AndroidUtilityApp {
     fn reset_device_data(&mut self) {
         self.apps.clear();
         self.loading_apps = false;
+        self.apps_reload_pending = false;
         self.labels_pending = false;
         self.processes.clear();
         self.loading_processes = false;
