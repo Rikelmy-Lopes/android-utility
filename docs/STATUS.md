@@ -58,6 +58,8 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Applications tab asks for confirmation before loading every application name, warning that the operation is slow.
 - [x] UI application state split into actions and event handling modules, with device resets shared by one helper.
 - [x] ADB integration split into client, device, and focused parser modules.
+- [x] ADB command reference documents every command, possible outputs, and minimum Android version.
+- [x] Development rules require documenting every new ADB command in the command reference.
 
 ## In Progress
 
