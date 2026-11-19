@@ -68,6 +68,9 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Optimization tab can filter by background execution state and Doze whitelist state.
 - [x] Total application count is shown at the bottom right on the Applications and Optimization tabs.
 - [x] Optimization tab Refresh button reloads applications, Doze whitelist, and background execution state.
+- [x] Release builds on Windows use the GUI subsystem, so the executable does not open a console window.
+- [x] Application icon embedded in the Windows executable and shown in the window title bar and taskbar.
+- [x] Windows ADB process invocations use `DETACHED_PROCESS`, so no console window opens and process startup keeps its normal speed.
 
 ## In Progress
 

@@ -7,6 +7,11 @@ use std::time::{Duration, Instant};
 
 use super::error::AdbError;
 
+/// Windows process creation flag that runs a console program without a console
+/// window and without the hidden-console setup cost of `CREATE_NO_WINDOW`.
+#[cfg(windows)]
+const DETACHED_PROCESS: u32 = 0x0000_0008;
+
 /// Result of a finished process invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessOutput {
@@ -55,13 +60,21 @@ pub fn run(
 
     let started = Instant::now();
 
-    let mut child = match Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+
+        command.creation_flags(DETACHED_PROCESS);
+    }
+
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
             tracing::error!(
