@@ -60,6 +60,8 @@ pub enum AppsAction {
     Enable(PackageName),
     /// Uninstall a package.
     Uninstall(PackageName),
+    /// Read the installed application list again.
+    Refresh,
     /// Read application names for the listed packages.
     LoadNames,
     /// Read the application name for one package.
@@ -105,6 +107,24 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
             .count();
 
         ui.label(translations.format("apps.count", &[("count", &filtered_count.to_string())]));
+
+        let refresh = theme::toned_button(
+            translations.get("app.refresh"),
+            theme::ButtonTone::Primary,
+            palette,
+        );
+
+        if ui
+            .add_enabled(!state.loading, refresh)
+            .on_hover_text(translations.get("apps.refresh_tooltip"))
+            .clicked()
+        {
+            action = Some(AppsAction::Refresh);
+        }
+
+        if state.loading {
+            ui.spinner();
+        }
 
         if state.loading_labels {
             ui.spinner();

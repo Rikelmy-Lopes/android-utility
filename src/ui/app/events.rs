@@ -132,7 +132,7 @@ impl AndroidUtilityApp {
 
                         self.set_success(message);
                         info!(package = %package, ?outcome, "operation succeeded");
-                        self.load_apps_after_operation();
+                        self.reload_apps();
                     }
                     Err(error) => {
                         let text = self.error_text(&error);

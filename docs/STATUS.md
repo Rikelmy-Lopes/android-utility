@@ -62,6 +62,8 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Development rules require documenting every new ADB command in the command reference.
 - [x] Unsupported ADB commands and device services are reported as structured errors instead of empty results.
 - [x] Disable, enable, and uninstall update the visible application row immediately instead of waiting for the full listing to reload.
+- [x] Applications tab has a Refresh button that reloads the installed application list.
+- [x] Optimization tab Refresh button reloads applications, Doze whitelist, and background execution state.
 
 ## In Progress
 

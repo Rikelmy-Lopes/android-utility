@@ -112,7 +112,7 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
 
         if ui
             .add_enabled(
-                !state.loading_whitelist && !state.loading_background,
+                !state.loading_apps && !state.loading_whitelist && !state.loading_background,
                 refresh,
             )
             .on_hover_text(translations.get("optimization.refresh_tooltip"))

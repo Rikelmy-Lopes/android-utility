@@ -37,12 +37,11 @@ impl AndroidUtilityApp {
         ));
     }
 
-    /// Reloads the application list after a package operation.
+    /// Reloads the application list, queueing the request when a load is in flight.
     ///
-    /// The list is reloaded only when no load is already in flight. Otherwise the
-    /// request is queued so an in-flight snapshot cannot overwrite the updated
-    /// package state.
-    pub(super) fn load_apps_after_operation(&mut self) {
+    /// Queueing prevents an in-flight snapshot from overwriting newer state and
+    /// allows follow-up loads (for example after a package operation).
+    pub(super) fn reload_apps(&mut self) {
         if self.loading_apps {
             self.apps_reload_pending = true;
         } else {
@@ -326,6 +325,9 @@ impl AndroidUtilityApp {
             AppsAction::Uninstall(package) => {
                 self.request_confirmation(ConfirmKind::Uninstall, package);
             }
+            AppsAction::Refresh => {
+                self.load_apps();
+            }
             AppsAction::LoadNames => {
                 self.load_names_confirmation = true;
             }
@@ -338,8 +340,10 @@ impl AndroidUtilityApp {
     pub(super) fn handle_optimization_action(&mut self, action: OptimizationAction) {
         match action {
             OptimizationAction::Refresh => {
+                // The application list reload triggers the background policy
+                // reload with the refreshed package set.
+                self.reload_apps();
                 self.load_doze_whitelist();
-                self.load_background_execution();
             }
             OptimizationAction::SetWhitelisted {
                 package,
