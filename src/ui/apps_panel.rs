@@ -33,12 +33,39 @@ impl AppsFilter {
     }
 }
 
+/// Enabled state selected by the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppsStatusFilter {
+    /// Show enabled and disabled packages.
+    All,
+    /// Show only enabled packages.
+    Enabled,
+    /// Show only disabled packages.
+    Disabled,
+}
+
+impl AppsStatusFilter {
+    /// Filters offered to the user.
+    pub const OPTIONS: [Self; 3] = [Self::All, Self::Enabled, Self::Disabled];
+
+    /// Returns whether `app` matches the selected enabled state.
+    pub fn matches(self, app: &InstalledApp) -> bool {
+        match self {
+            Self::All => true,
+            Self::Enabled => !app.is_disabled,
+            Self::Disabled => app.is_disabled,
+        }
+    }
+}
+
 /// Read-only state needed to render the application list.
 pub struct AppsPanel<'a> {
     /// Applications to display.
     pub apps: &'a [InstalledApp],
     /// Package subset selected by the user.
     pub filter: &'a mut AppsFilter,
+    /// Enabled state selected by the user.
+    pub status_filter: &'a mut AppsStatusFilter,
     /// Search query edited by the user.
     pub search: &'a mut String,
     /// Packages with an operation in progress.
@@ -100,10 +127,24 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
                 }
             });
 
+        ui.label(translations.get("apps.status"));
+        egui::ComboBox::from_id_salt("apps_status_filter")
+            .selected_text(status_filter_label(translations, *state.status_filter))
+            .show_ui(ui, |ui| {
+                for filter in AppsStatusFilter::OPTIONS {
+                    ui.selectable_value(
+                        state.status_filter,
+                        filter,
+                        status_filter_label(translations, filter),
+                    );
+                }
+            });
+
         let filtered_count = state
             .apps
             .iter()
             .filter(|app| state.filter.matches(app))
+            .filter(|app| state.status_filter.matches(app))
             .count();
 
         ui.label(translations.format("apps.count", &[("count", &filtered_count.to_string())]));
@@ -171,6 +212,7 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
         .apps
         .iter()
         .filter(|app| state.filter.matches(app))
+        .filter(|app| state.status_filter.matches(app))
         .filter(matches_query)
         .collect();
 
@@ -312,6 +354,14 @@ pub(super) fn filter_label(translations: &Translations, filter: AppsFilter) -> &
     }
 }
 
+fn status_filter_label(translations: &Translations, filter: AppsStatusFilter) -> &str {
+    match filter {
+        AppsStatusFilter::All => translations.get("apps.status_all"),
+        AppsStatusFilter::Enabled => translations.get("apps.status_enabled"),
+        AppsStatusFilter::Disabled => translations.get("apps.status_disabled"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,6 +373,13 @@ mod tests {
             apk_path: None,
             is_system,
             is_disabled: false,
+        }
+    }
+
+    fn disabled_app(package: &str) -> InstalledApp {
+        InstalledApp {
+            is_disabled: true,
+            ..app(package, false)
         }
     }
 
@@ -342,5 +399,23 @@ mod tests {
     fn installed_filter_excludes_system_applications() {
         assert!(!AppsFilter::Installed.matches(&app("com.android.settings", true)));
         assert!(AppsFilter::Installed.matches(&app("com.example", false)));
+    }
+
+    #[test]
+    fn status_all_filter_keeps_every_application() {
+        assert!(AppsStatusFilter::All.matches(&app("com.example", false)));
+        assert!(AppsStatusFilter::All.matches(&disabled_app("com.example")));
+    }
+
+    #[test]
+    fn enabled_filter_keeps_only_enabled_applications() {
+        assert!(AppsStatusFilter::Enabled.matches(&app("com.example", false)));
+        assert!(!AppsStatusFilter::Enabled.matches(&disabled_app("com.example")));
+    }
+
+    #[test]
+    fn disabled_filter_keeps_only_disabled_applications() {
+        assert!(!AppsStatusFilter::Disabled.matches(&app("com.example", false)));
+        assert!(AppsStatusFilter::Disabled.matches(&disabled_app("com.example")));
     }
 }

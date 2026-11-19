@@ -11,6 +11,59 @@ use crate::i18n::Translations;
 use super::apps_panel::{AppsFilter, filter_label};
 use super::theme;
 
+/// Background execution state selected by the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackgroundFilter {
+    /// Show packages in every background state.
+    All,
+    /// Show packages allowed to run in the background.
+    Allowed,
+    /// Show packages restricted from running in the background.
+    Denied,
+}
+
+impl BackgroundFilter {
+    /// Filters offered to the user.
+    pub const OPTIONS: [Self; 3] = [Self::All, Self::Allowed, Self::Denied];
+
+    /// Returns whether `policy` matches the selected state.
+    pub fn matches(self, policy: Option<BackgroundExecution>) -> bool {
+        match self {
+            Self::All => true,
+            Self::Allowed => policy == Some(BackgroundExecution::Allowed),
+            Self::Denied => policy == Some(BackgroundExecution::Ignored),
+        }
+    }
+}
+
+/// Doze whitelist state selected by the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DozeFilter {
+    /// Show packages in every Doze state.
+    All,
+    /// Show packages ignored by Doze.
+    Ignored,
+    /// Show packages not ignored by Doze.
+    NotIgnored,
+}
+
+impl DozeFilter {
+    /// Filters offered to the user.
+    pub const OPTIONS: [Self; 3] = [Self::All, Self::Ignored, Self::NotIgnored];
+
+    /// Returns whether the selected Doze state matches the package.
+    ///
+    /// Known states are matched only after the whitelist has loaded, so a
+    /// pending load does not present every package as not ignored.
+    pub fn matches(self, whitelist_loaded: bool, whitelisted: bool) -> bool {
+        match self {
+            Self::All => true,
+            Self::Ignored => whitelist_loaded && whitelisted,
+            Self::NotIgnored => whitelist_loaded && !whitelisted,
+        }
+    }
+}
+
 /// Read-only state needed to render the optimization list.
 pub struct OptimizationPanel<'a> {
     /// Applications to display.
@@ -21,6 +74,10 @@ pub struct OptimizationPanel<'a> {
     pub background: &'a HashMap<PackageName, BackgroundExecution>,
     /// Package subset selected by the user.
     pub filter: &'a mut AppsFilter,
+    /// Background execution state selected by the user.
+    pub background_filter: &'a mut BackgroundFilter,
+    /// Doze whitelist state selected by the user.
+    pub doze_filter: &'a mut DozeFilter,
     /// Search query edited by the user.
     pub search: &'a mut String,
     /// Packages with an operation in progress.
@@ -33,6 +90,8 @@ pub struct OptimizationPanel<'a> {
     pub loading_background: bool,
     /// Whether the Doze whitelist was loaded successfully.
     pub whitelist_loaded: bool,
+    /// Whether background execution policies were loaded successfully.
+    pub background_loaded: bool,
     /// Translation source.
     pub translations: &'a Translations,
 }
@@ -94,6 +153,21 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
             .apps
             .iter()
             .filter(|app| state.filter.matches(app))
+            .filter(|app| {
+                let policy = if state.background_loaded {
+                    state.background.get(&app.package).copied()
+                } else {
+                    None
+                };
+
+                state.background_filter.matches(policy)
+            })
+            .filter(|app| {
+                state.doze_filter.matches(
+                    state.whitelist_loaded,
+                    state.whitelist.contains_key(&app.package),
+                )
+            })
             .count();
         ui.label(translations.format("apps.count", &[("count", &filtered_count.to_string())]));
 
@@ -125,6 +199,39 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
             ui.spinner();
             ui.label(translations.get("optimization.background_loading"));
         }
+    });
+
+    ui.add_space(theme::size::SPACING_XS);
+
+    ui.horizontal(|ui| {
+        ui.label(translations.get("optimization.column_background"));
+        egui::ComboBox::from_id_salt("optimization_background_filter")
+            .selected_text(background_filter_label(
+                translations,
+                *state.background_filter,
+            ))
+            .show_ui(ui, |ui| {
+                for filter in BackgroundFilter::OPTIONS {
+                    ui.selectable_value(
+                        state.background_filter,
+                        filter,
+                        background_filter_label(translations, filter),
+                    );
+                }
+            });
+
+        ui.label(translations.get("optimization.column_doze"));
+        egui::ComboBox::from_id_salt("optimization_doze_filter")
+            .selected_text(doze_filter_label(translations, *state.doze_filter))
+            .show_ui(ui, |ui| {
+                for filter in DozeFilter::OPTIONS {
+                    ui.selectable_value(
+                        state.doze_filter,
+                        filter,
+                        doze_filter_label(translations, filter),
+                    );
+                }
+            });
     });
 
     ui.add_space(theme::size::SPACING_SM);
@@ -164,6 +271,21 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
         .apps
         .iter()
         .filter(|app| state.filter.matches(app))
+        .filter(|app| {
+            let policy = if state.background_loaded {
+                state.background.get(&app.package).copied()
+            } else {
+                None
+            };
+
+            state.background_filter.matches(policy)
+        })
+        .filter(|app| {
+            state.doze_filter.matches(
+                state.whitelist_loaded,
+                state.whitelist.contains_key(&app.package),
+            )
+        })
         .filter(matches_query)
         .collect();
 
@@ -338,6 +460,22 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
     action
 }
 
+fn background_filter_label(translations: &Translations, filter: BackgroundFilter) -> &str {
+    match filter {
+        BackgroundFilter::All => translations.get("optimization.filter_all"),
+        BackgroundFilter::Allowed => translations.get("optimization.background_allowed"),
+        BackgroundFilter::Denied => translations.get("optimization.background_denied"),
+    }
+}
+
+fn doze_filter_label(translations: &Translations, filter: DozeFilter) -> &str {
+    match filter {
+        DozeFilter::All => translations.get("optimization.filter_all"),
+        DozeFilter::Ignored => translations.get("optimization.doze_ignore"),
+        DozeFilter::NotIgnored => translations.get("optimization.doze_not_ignore"),
+    }
+}
+
 fn column_header(ui: &mut egui::Ui, text: &str) {
     ui.add_sized(
         egui::vec2(theme::size::BUTTON_WIDTH, theme::size::CONTROL_HEIGHT),
@@ -345,4 +483,63 @@ fn column_header(ui: &mut egui::Ui, text: &str) {
             .halign(egui::Align::Center)
             .selectable(false),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn background_filter_matches_the_selected_state() {
+        assert!(BackgroundFilter::All.matches(None));
+        assert!(BackgroundFilter::All.matches(Some(BackgroundExecution::Allowed)));
+        assert!(BackgroundFilter::All.matches(Some(BackgroundExecution::Ignored)));
+
+        assert!(BackgroundFilter::Allowed.matches(Some(BackgroundExecution::Allowed)));
+        assert!(!BackgroundFilter::Allowed.matches(Some(BackgroundExecution::Ignored)));
+        assert!(!BackgroundFilter::Allowed.matches(None));
+
+        assert!(BackgroundFilter::Denied.matches(Some(BackgroundExecution::Ignored)));
+        assert!(!BackgroundFilter::Denied.matches(Some(BackgroundExecution::Allowed)));
+        assert!(!BackgroundFilter::Denied.matches(None));
+    }
+
+    #[test]
+    fn doze_filter_matches_only_known_states() {
+        assert!(DozeFilter::All.matches(false, false));
+        assert!(DozeFilter::Ignored.matches(true, true));
+        assert!(!DozeFilter::Ignored.matches(true, false));
+        assert!(!DozeFilter::Ignored.matches(false, false));
+        assert!(DozeFilter::NotIgnored.matches(true, false));
+        assert!(!DozeFilter::NotIgnored.matches(true, true));
+        assert!(!DozeFilter::NotIgnored.matches(false, false));
+    }
+
+    #[test]
+    fn labels_are_defined_for_every_filter() {
+        let translations = Translations::english();
+
+        assert_eq!(
+            background_filter_label(&translations, BackgroundFilter::All),
+            "All"
+        );
+        assert_eq!(
+            background_filter_label(&translations, BackgroundFilter::Allowed),
+            "Allowed"
+        );
+        assert_eq!(
+            background_filter_label(&translations, BackgroundFilter::Denied),
+            "Denied"
+        );
+
+        assert_eq!(doze_filter_label(&translations, DozeFilter::All), "All");
+        assert_eq!(
+            doze_filter_label(&translations, DozeFilter::Ignored),
+            "Ignore"
+        );
+        assert_eq!(
+            doze_filter_label(&translations, DozeFilter::NotIgnored),
+            "Not ignore"
+        );
+    }
 }

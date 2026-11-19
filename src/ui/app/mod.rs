@@ -11,9 +11,9 @@ use android_utility_core::{
     ResourceSession, SessionSummary, sort_processes,
 };
 
-use super::apps_panel::{self, AppsFilter, AppsPanel};
+use super::apps_panel::{self, AppsFilter, AppsPanel, AppsStatusFilter};
 use super::confirm::{self, ConfirmKind, ConfirmResponse, PendingConfirmation};
-use super::optimization_panel::{self, OptimizationPanel};
+use super::optimization_panel::{self, BackgroundFilter, DozeFilter, OptimizationPanel};
 use super::processes_panel::{self, ProcessLimit, ProcessRefresh, ProcessesAction, ProcessesPanel};
 use super::session_summary;
 use super::theme;
@@ -37,8 +37,11 @@ pub struct AndroidUtilityApp {
     label_cache: LabelCache,
     search: String,
     apps_filter: AppsFilter,
+    apps_status_filter: AppsStatusFilter,
     optimization_search: String,
     optimization_filter: AppsFilter,
+    optimization_background_filter: BackgroundFilter,
+    optimization_doze_filter: DozeFilter,
     doze_whitelist: HashMap<PackageName, DozeWhitelistSource>,
     doze_whitelist_loaded: bool,
     loading_doze_whitelist: bool,
@@ -161,8 +164,11 @@ impl AndroidUtilityApp {
             label_cache,
             search: String::new(),
             apps_filter: AppsFilter::All,
+            apps_status_filter: AppsStatusFilter::All,
             optimization_search: String::new(),
             optimization_filter: AppsFilter::All,
+            optimization_background_filter: BackgroundFilter::All,
+            optimization_doze_filter: DozeFilter::All,
             doze_whitelist: HashMap::new(),
             doze_whitelist_loaded: false,
             loading_doze_whitelist: false,
@@ -544,6 +550,7 @@ impl eframe::App for AndroidUtilityApp {
                         AppsPanel {
                             apps: &self.apps,
                             filter: &mut self.apps_filter,
+                            status_filter: &mut self.apps_status_filter,
                             search: &mut self.search,
                             busy: &self.busy,
                             loading: self.loading_apps,
@@ -576,12 +583,15 @@ impl eframe::App for AndroidUtilityApp {
                             whitelist: &self.doze_whitelist,
                             background: &self.background_execution,
                             filter: &mut self.optimization_filter,
+                            background_filter: &mut self.optimization_background_filter,
+                            doze_filter: &mut self.optimization_doze_filter,
                             search: &mut self.optimization_search,
                             busy: &self.busy,
                             loading_apps: self.loading_apps,
                             loading_whitelist: self.loading_doze_whitelist,
                             loading_background: self.loading_background_execution,
                             whitelist_loaded: self.doze_whitelist_loaded,
+                            background_loaded: self.background_execution_loaded,
                             translations,
                         },
                     );
