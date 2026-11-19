@@ -43,6 +43,7 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Start and stop recording controls that reset counters, show recorded update count, and stop collection immediately.
 - [x] Resource usage summary dialog with elapsed time, update count, and per-process average CPU and memory for the first 10 processes in the selected sort order.
 - [x] Samples follow the current leading processes; when the tracked set is full, the least recently sampled process is replaced.
+- [x] A shifted leading set preserves the samples already accumulated for processes that remain in the current snapshot.
 - [x] Per-process averages safely handle processes with no samples and sessions stopped without any update.
 - [x] Active recording cancelled when leaving the Process tab or switching devices.
 - [x] Process tab label renamed from "Device" and a fixed spinner slot keeps the toolbar controls from shifting while loading.
