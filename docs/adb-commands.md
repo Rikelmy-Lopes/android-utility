@@ -32,9 +32,9 @@ Source of truth: `src/adb/client.rs`. Parsers and validators live under
 | `adb -s <serial> shell pm list packages -s` | List system packages. | Android 1.0 (API 1). | Rejects reported `failure` or `exception`. |
 | `adb -s <serial> shell pm list packages -d` | List disabled packages. | Android 1.0 (API 1). | Rejects reported `failure` or `exception`. |
 | `adb -s <serial> shell top -b -n 1 -o PID,%CPU,RES,TIME+,ARGS -s 2` | Read one process snapshot. | Android 8.0 (API 26). | Requires a parseable process table. |
-| `adb -s <serial> shell dumpsys deviceidle whitelist` | Read the Doze whitelist. | Android 7.0 (API 24). | Exit code must be 0. |
-| `adb -s <serial> shell dumpsys deviceidle whitelist +<package>` | Add a package to the Doze whitelist. | Android 7.0 (API 24). | Exit code must be 0 and stdout must not report an unknown package. |
-| `adb -s <serial> shell dumpsys deviceidle whitelist -<package>` | Remove a package from the Doze whitelist. | Android 7.0 (API 24). | Same as the add command. |
+| `adb -s <serial> shell dumpsys deviceidle whitelist` | Read the Doze whitelist. | Android 6.0 (API 23). | Exit code must be 0. |
+| `adb -s <serial> shell dumpsys deviceidle whitelist +<package>` | Add a package to the Doze whitelist. | Android 6.0 (API 23). | Exit code must be 0 and stdout must not report an unknown package. |
+| `adb -s <serial> shell dumpsys deviceidle whitelist -<package>` | Remove a package from the Doze whitelist. | Android 6.0 (API 23). | Same as the add command. |
 | `adb -s <serial> shell cmd appops query-op RUN_ANY_IN_BACKGROUND ignore` | List packages whose background execution is ignored. | Android 9.0 (API 28). | Exit code must be 0; stderr must not report an error or exception. |
 | `adb -s <serial> shell cmd appops set <package> RUN_ANY_IN_BACKGROUND allow` | Allow background execution. | Android 9.0 (API 28). | Same as the query command. |
 | `adb -s <serial> shell cmd appops set <package> RUN_ANY_IN_BACKGROUND ignore` | Restrict background execution. | Android 9.0 (API 28). | Same as the query command. |
@@ -237,7 +237,7 @@ Possible variations:
 The parser validates package names, maps known sources, and ignores malformed
 lines. Unsupported command or service responses are rejected before parsing.
 
-Minimum Android version: Android 7.0 (API 24) for the
+Minimum Android version: Android 6.0 (API 23) for the
 `dumpsys deviceidle whitelist` command.
 
 ### `adb -s <serial> shell dumpsys deviceidle whitelist +<package>`
@@ -260,7 +260,7 @@ The command is successful only when it exits with code 0 and stdout does not
 contain `unknown package`. Diagnostics from stderr are included in the error
 message.
 
-Minimum Android version: Android 7.0 (API 24).
+Minimum Android version: Android 6.0 (API 23).
 
 ### `adb -s <serial> shell dumpsys deviceidle whitelist -<package>`
 
@@ -280,7 +280,7 @@ Unknown package: com.example.chat
 
 Validation matches the add command.
 
-Minimum Android version: Android 7.0 (API 24).
+Minimum Android version: Android 6.0 (API 23).
 
 ## Background Execution
 
