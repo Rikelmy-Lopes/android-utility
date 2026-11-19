@@ -430,28 +430,41 @@ impl AndroidUtilityApp {
     }
 
     fn draw_status_bar(&mut self, ui: &mut egui::Ui) {
+        let show_apps_total = matches!(self.selected_tab, Tab::Apps | Tab::Optimization);
+        let total_text = self
+            .translations
+            .format("apps.count", &[("count", &self.apps.len().to_string())]);
+
         egui::Panel::bottom("status")
             .show_separator_line(true)
             .show(ui, |ui| {
                 ui.add_space(theme::size::SPACING_XS);
 
-                match self.status.kind {
-                    StatusKind::Info => {
-                        ui.label(&self.status.text);
+                ui.horizontal(|ui| {
+                    match self.status.kind {
+                        StatusKind::Info => {
+                            ui.label(&self.status.text);
+                        }
+                        StatusKind::Success => {
+                            ui.colored_label(
+                                theme::palette(ui).success_text,
+                                egui::RichText::new(&self.status.text),
+                            );
+                        }
+                        StatusKind::Error => {
+                            ui.colored_label(
+                                ui.visuals().error_fg_color,
+                                egui::RichText::new(&self.status.text),
+                            );
+                        }
                     }
-                    StatusKind::Success => {
-                        ui.colored_label(
-                            theme::palette(ui).success_text,
-                            egui::RichText::new(&self.status.text),
-                        );
+
+                    if show_apps_total {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(&total_text).weak());
+                        });
                     }
-                    StatusKind::Error => {
-                        ui.colored_label(
-                            ui.visuals().error_fg_color,
-                            egui::RichText::new(&self.status.text),
-                        );
-                    }
-                }
+                });
 
                 ui.add_space(theme::size::SPACING_XS);
             });

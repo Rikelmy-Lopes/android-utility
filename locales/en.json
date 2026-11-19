@@ -68,7 +68,6 @@
   "apps.load_name_tooltip": "Reads this application's APK to resolve its name. Slower than the package name but affects one app only.",
   "apps.loading_names": "Loading application names…",
 
-  "optimization.whitelisted_count": "{count} ignored by Doze",
   "optimization.refresh": "Refresh",
   "optimization.refresh_tooltip": "Reads the installed applications, the Device Idle whitelist, and background execution policies from the device again.",
   "optimization.loading": "Reading the Doze whitelist…",

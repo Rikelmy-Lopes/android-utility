@@ -140,15 +140,6 @@ pub fn show(ui: &mut egui::Ui, state: AppsPanel<'_>) -> Option<AppsAction> {
                 }
             });
 
-        let filtered_count = state
-            .apps
-            .iter()
-            .filter(|app| state.filter.matches(app))
-            .filter(|app| state.status_filter.matches(app))
-            .count();
-
-        ui.label(translations.format("apps.count", &[("count", &filtered_count.to_string())]));
-
         let refresh = theme::toned_button(
             translations.get("app.refresh"),
             theme::ButtonTone::Primary,

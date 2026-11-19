@@ -149,35 +149,6 @@ pub fn show(ui: &mut egui::Ui, state: OptimizationPanel<'_>) -> Option<Optimizat
                 }
             });
 
-        let filtered_count = state
-            .apps
-            .iter()
-            .filter(|app| state.filter.matches(app))
-            .filter(|app| {
-                let policy = if state.background_loaded {
-                    state.background.get(&app.package).copied()
-                } else {
-                    None
-                };
-
-                state.background_filter.matches(policy)
-            })
-            .filter(|app| {
-                state.doze_filter.matches(
-                    state.whitelist_loaded,
-                    state.whitelist.contains_key(&app.package),
-                )
-            })
-            .count();
-        ui.label(translations.format("apps.count", &[("count", &filtered_count.to_string())]));
-
-        if state.whitelist_loaded {
-            let whitelisted = state.whitelist.len().to_string();
-            ui.label(
-                translations.format("optimization.whitelisted_count", &[("count", &whitelisted)]),
-            );
-        }
-
         let refresh = theme::toned_button(
             translations.get("optimization.refresh"),
             theme::ButtonTone::Primary,
