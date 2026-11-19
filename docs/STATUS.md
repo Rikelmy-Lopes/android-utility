@@ -56,6 +56,8 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Per-application background execution toggle switching between allow and ignore with `cmd appops set`.
 - [x] Background execution policies load with the Doze whitelist when the Optimization tab opens and when it is refreshed.
 - [x] Applications tab asks for confirmation before loading every application name, warning that the operation is slow.
+- [x] UI application state split into actions and event handling modules, with device resets shared by one helper.
+- [x] ADB integration split into client, device, and focused parser modules.
 
 ## In Progress
 
