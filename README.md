@@ -34,6 +34,7 @@ android-utility/
 │   └── ui/                     # egui/eframe interface
 ├── locales/                    # Translation files
 ├── docs/
+│   ├── adb-commands.md
 │   ├── architecture.md
 │   ├── development.md
 │   ├── ui-design.md
@@ -46,6 +47,7 @@ Create modules as responsibilities are implemented; do not add empty folders or 
 
 ## Documentation
 
+- [ADB commands](docs/adb-commands.md)
 - [Architecture](docs/architecture.md)
 - [Development guide](docs/development.md)
 - [UI design](docs/ui-design.md)

@@ -70,61 +70,61 @@ impl Palette {
     /// Palette used by the dark theme.
     pub const DARK: Self = Self {
         dark: true,
-        background: Color32::from_rgb(18, 21, 27),
-        surface: Color32::from_rgb(30, 35, 45),
-        surface_hover: Color32::from_rgb(38, 44, 56),
-        surface_active: Color32::from_rgb(46, 53, 67),
-        stripe: Color32::from_rgb(24, 28, 36),
-        input_background: Color32::from_rgb(14, 17, 22),
-        border: Color32::from_rgb(51, 58, 71),
-        text_primary: Color32::from_rgb(232, 235, 240),
-        text_secondary: Color32::from_rgb(154, 164, 178),
-        selection: Color32::from_rgb(52, 84, 138),
-        accent: Color32::from_rgb(76, 141, 255),
-        accent_hover: Color32::from_rgb(107, 161, 255),
-        on_accent: Color32::from_rgb(8, 16, 30),
-        danger: Color32::from_rgb(214, 69, 69),
-        danger_hover: Color32::from_rgb(226, 92, 92),
+        background: Color32::from_rgb(30, 31, 34),
+        surface: Color32::from_rgb(43, 45, 48),
+        surface_hover: Color32::from_rgb(53, 55, 59),
+        surface_active: Color32::from_rgb(57, 59, 64),
+        stripe: Color32::from_rgb(36, 37, 40),
+        input_background: Color32::from_rgb(30, 31, 34),
+        border: Color32::from_rgb(57, 59, 64),
+        text_primary: Color32::from_rgb(223, 225, 229),
+        text_secondary: Color32::from_rgb(157, 160, 168),
+        selection: Color32::from_rgb(46, 67, 110),
+        accent: Color32::from_rgb(47, 107, 219),
+        accent_hover: Color32::from_rgb(39, 95, 201),
+        on_accent: Color32::WHITE,
+        danger: Color32::from_rgb(192, 69, 69),
+        danger_hover: Color32::from_rgb(209, 88, 88),
         on_danger: Color32::WHITE,
-        danger_text: Color32::from_rgb(240, 122, 122),
-        warning: Color32::from_rgb(240, 180, 41),
-        warning_hover: Color32::from_rgb(245, 194, 74),
-        on_warning: Color32::from_rgb(27, 20, 5),
-        warning_text: Color32::from_rgb(240, 180, 41),
-        success: Color32::from_rgb(46, 158, 91),
-        success_hover: Color32::from_rgb(55, 178, 104),
+        danger_text: Color32::from_rgb(224, 108, 117),
+        warning: Color32::from_rgb(232, 163, 61),
+        warning_hover: Color32::from_rgb(240, 180, 90),
+        on_warning: Color32::from_rgb(30, 31, 34),
+        warning_text: Color32::from_rgb(232, 163, 61),
+        success: Color32::from_rgb(63, 122, 71),
+        success_hover: Color32::from_rgb(74, 138, 83),
         on_success: Color32::WHITE,
-        success_text: Color32::from_rgb(76, 203, 124),
+        success_text: Color32::from_rgb(106, 171, 115),
     };
 
     /// Palette used by the light theme.
     pub const LIGHT: Self = Self {
         dark: false,
-        background: Color32::from_rgb(244, 246, 250),
+        background: Color32::from_rgb(247, 248, 250),
         surface: Color32::WHITE,
-        surface_hover: Color32::from_rgb(238, 242, 248),
-        surface_active: Color32::from_rgb(226, 233, 243),
-        stripe: Color32::from_rgb(248, 250, 253),
+        surface_hover: Color32::from_rgb(234, 236, 239),
+        surface_active: Color32::from_rgb(222, 225, 230),
+        stripe: Color32::from_rgb(242, 244, 247),
         input_background: Color32::WHITE,
-        border: Color32::from_rgb(213, 220, 230),
-        text_primary: Color32::from_rgb(27, 35, 48),
-        text_secondary: Color32::from_rgb(91, 102, 117),
-        selection: Color32::from_rgb(191, 214, 255),
-        accent: Color32::from_rgb(31, 111, 235),
-        accent_hover: Color32::from_rgb(59, 130, 246),
+        border: Color32::from_rgb(223, 225, 229),
+        text_primary: Color32::from_rgb(30, 31, 34),
+        text_secondary: Color32::from_rgb(108, 112, 126),
+        selection: Color32::from_rgb(212, 226, 255),
+        accent: Color32::from_rgb(47, 107, 219),
+        accent_hover: Color32::from_rgb(39, 95, 201),
         on_accent: Color32::WHITE,
-        danger: Color32::from_rgb(198, 40, 40),
-        danger_hover: Color32::from_rgb(211, 47, 47),
+        danger: Color32::from_rgb(199, 34, 31),
+        danger_hover: Color32::from_rgb(214, 46, 43),
         on_danger: Color32::WHITE,
-        danger_text: Color32::from_rgb(179, 38, 30),
-        warning: Color32::from_rgb(240, 180, 41),
-        warning_hover: Color32::from_rgb(245, 194, 74),
-        on_warning: Color32::from_rgb(27, 20, 5),
-        warning_text: Color32::from_rgb(138, 90, 0),
-        success: Color32::from_rgb(30, 142, 78),
-        success_hover: Color32::from_rgb(36, 161, 89),
+        danger_text: Color32::from_rgb(199, 34, 31),
+        warning: Color32::from_rgb(232, 163, 61),
+        warning_hover: Color32::from_rgb(240, 180, 90),
+        on_warning: Color32::from_rgb(30, 31, 34),
+        warning_text: Color32::from_rgb(161, 92, 0),
+        success: Color32::from_rgb(63, 122, 71),
+        success_hover: Color32::from_rgb(74, 138, 83),
         on_success: Color32::WHITE,
-        success_text: Color32::from_rgb(20, 122, 63),
+        success_text: Color32::from_rgb(46, 125, 50),
     };
 
     /// Returns the palette for `mode`.
@@ -139,23 +139,23 @@ impl Palette {
 /// Font sizes, in points.
 pub mod font_size {
     /// Regular body text.
-    pub const BODY: f32 = 15.0;
+    pub const BODY: f32 = 13.0;
     /// Small supporting text.
-    pub const SMALL: f32 = 12.0;
+    pub const SMALL: f32 = 11.0;
     /// Button labels.
-    pub const BUTTON: f32 = 14.0;
+    pub const BUTTON: f32 = 13.0;
     /// Section headings.
-    pub const HEADING: f32 = 20.0;
+    pub const HEADING: f32 = 18.0;
     /// Monospaced identifiers.
-    pub const MONOSPACE: f32 = 13.0;
+    pub const MONOSPACE: f32 = 12.0;
 }
 
 /// Corner radii, in points.
 pub mod radius {
     /// Buttons and inputs.
-    pub const CONTROL: u8 = 8;
+    pub const CONTROL: u8 = 4;
     /// Panels and windows.
-    pub const PANEL: u8 = 12;
+    pub const PANEL: u8 = 8;
 }
 
 /// Spacing and control dimensions, in points.
@@ -167,7 +167,7 @@ pub mod size {
     /// Medium spacing.
     pub const SPACING_MD: f32 = 12.0;
     /// Height of buttons, inputs, and other interactive controls.
-    pub const CONTROL_HEIGHT: f32 = 30.0;
+    pub const CONTROL_HEIGHT: f32 = 28.0;
     /// Minimum width of a standard button.
     pub const BUTTON_WIDTH: f32 = 96.0;
     /// Minimum width of a compact row action button.
@@ -177,17 +177,17 @@ pub mod size {
     /// Width of the device selector.
     pub const DEVICE_SELECTOR_WIDTH: f32 = 260.0;
     /// Height of one application row.
-    pub const ROW_HEIGHT_APPS: f32 = 48.0;
+    pub const ROW_HEIGHT_APPS: f32 = 44.0;
     /// Height of one process row.
-    pub const ROW_HEIGHT_PROCESSES: f32 = 28.0;
+    pub const ROW_HEIGHT_PROCESSES: f32 = 26.0;
     /// Horizontal padding inside a list row.
     pub const ROW_PADDING: f32 = 8.0;
     /// Padding inside panels.
-    pub const PANEL_PADDING: i8 = 12;
+    pub const PANEL_PADDING: i8 = 10;
     /// Horizontal padding of an input field.
     pub const INPUT_PADDING_X: i8 = 8;
     /// Vertical padding of an input field.
-    pub const INPUT_PADDING_Y: i8 = 6;
+    pub const INPUT_PADDING_Y: i8 = 5;
 }
 
 /// Semantic role of a button.
@@ -375,6 +375,40 @@ mod tests {
             assert_ne!(palette.success, palette.on_success);
             assert_ne!(palette.accent, palette.on_accent);
         }
+    }
+
+    #[test]
+    fn primary_button_text_reaches_readable_contrast() {
+        for palette in [&Palette::DARK, &Palette::LIGHT] {
+            let ratio = contrast_ratio(palette.accent, palette.on_accent);
+            assert!(ratio >= 4.5, "primary button contrast is only {ratio:.2}");
+        }
+    }
+
+    fn contrast_ratio(first: Color32, second: Color32) -> f64 {
+        let first = relative_luminance(first);
+        let second = relative_luminance(second);
+        let (lighter, darker) = if first > second {
+            (first, second)
+        } else {
+            (second, first)
+        };
+
+        (lighter + 0.05) / (darker + 0.05)
+    }
+
+    fn relative_luminance(color: Color32) -> f64 {
+        let channel = |value: u8| {
+            let value = f64::from(value) / 255.0;
+
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+
+        0.2126 * channel(color.r()) + 0.7152 * channel(color.g()) + 0.0722 * channel(color.b())
     }
 
     #[test]

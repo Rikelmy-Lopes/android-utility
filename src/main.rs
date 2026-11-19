@@ -1,3 +1,8 @@
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
+
 mod adb;
 mod commands;
 mod i18n;
@@ -24,10 +29,17 @@ fn main() -> eframe::Result<()> {
         "starting Android Utility"
     );
 
+    let mut viewport = eframe::egui::ViewportBuilder::default()
+        .with_inner_size([1000.0, 700.0])
+        .with_min_inner_size([640.0, 480.0]);
+
+    match eframe::icon_data::from_png_bytes(include_bytes!("../icon/icon.png")) {
+        Ok(icon) => viewport = viewport.with_icon(icon),
+        Err(error) => tracing::warn!(%error, "could not load the application icon"),
+    }
+
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1000.0, 700.0])
-            .with_min_inner_size([640.0, 480.0]),
+        viewport,
         ..Default::default()
     };
 

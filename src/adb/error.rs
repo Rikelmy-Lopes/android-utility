@@ -25,6 +25,13 @@ pub enum AdbError {
         /// Combined diagnostic output.
         message: String,
     },
+    /// The device does not provide the requested command or service.
+    UnsupportedCommand {
+        /// Command or service that is unavailable.
+        command: &'static str,
+        /// Combined diagnostic output.
+        message: String,
+    },
     /// The device rejected the command because of permissions.
     PermissionDenied {
         /// Diagnostic message without stack frames.
@@ -44,6 +51,14 @@ impl AdbError {
             message: message.into(),
         }
     }
+
+    /// Builds an error for a command or service the device does not provide.
+    pub fn unsupported_command(command: &'static str, message: impl Into<String>) -> Self {
+        Self::UnsupportedCommand {
+            command,
+            message: message.into(),
+        }
+    }
 }
 
 impl fmt::Display for AdbError {
@@ -57,6 +72,9 @@ impl fmt::Display for AdbError {
                 write!(formatter, "command timed out after {seconds} seconds")
             }
             Self::CommandFailed { message } => write!(formatter, "command failed: {message}"),
+            Self::UnsupportedCommand { command, message } => {
+                write!(formatter, "command not supported: {command} ({message})")
+            }
             Self::PermissionDenied { message } => {
                 write!(formatter, "permission denied: {message}")
             }

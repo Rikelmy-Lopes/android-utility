@@ -35,21 +35,42 @@ Current implementation status of Android Utility. Read this file before starting
 - [x] Centralized design tokens for palettes, semantic colors, font sizes, spacing, radii, and control sizes in `src/ui/theme.rs`.
 - [x] Consistent panel spacing, row alignment, and rounded buttons and input fields.
 - [x] Semantic action colors: red for uninstall and errors, amber for warnings, green for enable and success confirmations.
+- [x] Dark theme primary buttons use white text on a darker accent fill with at least 4.5:1 contrast.
+- [x] Dark and light palettes, typography, compact control heights, and corner radii aligned with Android Studio styling.
 - [x] Dark and light themes with a toolbar theme switcher.
 - [x] Selected theme persisted in `settings.json` below the per-user application data directory.
 - [x] Process tab session recording that tracks per-process CPU and resident memory samples on every process refresh tick.
 - [x] Start and stop recording controls that reset counters, show recorded update count, and stop collection immediately.
 - [x] Resource usage summary dialog with elapsed time, update count, and per-process average CPU and memory for the first 10 processes in the selected sort order.
 - [x] Samples follow the current leading processes; when the tracked set is full, the least recently sampled process is replaced.
+- [x] A shifted leading set preserves the samples already accumulated for processes that remain in the current snapshot.
 - [x] Per-process averages safely handle processes with no samples and sessions stopped without any update.
 - [x] Active recording cancelled when leaving the Process tab or switching devices.
 - [x] Process tab label renamed from "Device" and a fixed spinner slot keeps the toolbar controls from shifting while loading.
 - [x] Resource usage summary dialog widths the CPU and memory columns from the measured header and value text, grows up to the window width, and never clips those columns.
-- [x] Optimization tab listing installed applications with the same all, system, and installed filters; the toggle button shows Doze whitelist state, so no separate status text is shown.
+- [x] Optimization tab listing installed applications with the same all, system, and installed filters.
 - [x] Doze whitelist read from `dumpsys deviceidle whitelist` with system and user entries tracked internally.
 - [x] Per-application Doze toggle adding or removing a package from the whitelist through `dumpsys deviceidle whitelist +package` and `-package`.
 - [x] Optimization tab reuses the cached application names without its own name-loading controls.
+- [x] Optimization tab shows Background and Doze columns; Background values are Allowed and Denied, Doze values are Ignore and Not ignore.
+- [x] Background execution states are read in one `cmd appops query-op RUN_ANY_IN_BACKGROUND ignore` call instead of one call per application.
+- [x] Per-application background execution toggle switching between allow and ignore with `cmd appops set`.
+- [x] Background execution policies load with the Doze whitelist when the Optimization tab opens and when it is refreshed.
 - [x] Applications tab asks for confirmation before loading every application name, warning that the operation is slow.
+- [x] UI application state split into actions and event handling modules, with device resets shared by one helper.
+- [x] ADB integration split into client, device, and focused parser modules.
+- [x] ADB command reference documents every command, possible outputs, and minimum Android version.
+- [x] Development rules require documenting every new ADB command in the command reference.
+- [x] Unsupported ADB commands and device services are reported as structured errors instead of empty results.
+- [x] Disable, enable, and uninstall update the visible application row immediately instead of waiting for the full listing to reload.
+- [x] Applications tab has a Refresh button that reloads the installed application list.
+- [x] Applications tab can filter the list by enabled state: all, enabled only, or disabled only.
+- [x] Optimization tab can filter by background execution state and Doze whitelist state.
+- [x] Total application count is shown at the bottom right on the Applications and Optimization tabs.
+- [x] Optimization tab Refresh button reloads applications, Doze whitelist, and background execution state.
+- [x] Release builds on Windows use the GUI subsystem, so the executable does not open a console window.
+- [x] Application icon embedded in the Windows executable and shown in the window title bar and taskbar.
+- [x] Windows ADB process invocations use `DETACHED_PROCESS`, so no console window opens and process startup keeps its normal speed.
 
 ## In Progress
 

@@ -25,4 +25,5 @@ Follow the checklist in [docs/development.md](docs/development.md#checklist-for-
 ## 4. Related Documentation
 
 - [README.md](README.md) — Project overview and structure.
+- [docs/adb-commands.md](docs/adb-commands.md) — ADB commands, outputs, and minimum Android versions.
 - [docs/STATUS.md](docs/STATUS.md) — Current project status.

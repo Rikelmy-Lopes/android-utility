@@ -19,6 +19,7 @@ Rules and practices for working on Android Utility. Architectural rules are defi
 - Validate external input, including user input, process output, and device-provided data. Handle unknown fields and format variations.
 - Capture and interpret exit status, standard output, and standard error of every process.
 - Handle missing ADB, missing devices, multiple devices, unauthorized devices, offline devices, and disconnected devices.
+- Add every new ADB command to [adb-commands.md](adb-commands.md) with its purpose, possible outputs, and minimum supported Android version.
 
 ## Adding UI Text
 
@@ -59,10 +60,11 @@ Verify compilation for the supported Windows and Linux targets in CI or an equiv
 2. Identify the correct architectural layer and responsibility (`core`, application/commands, ADB integration, i18n, startup, or UI).
 3. Check whether an existing abstraction or feature should be extended before adding a new one.
 4. Implement the change following [architecture.md](architecture.md).
-5. Add or update automated unit tests.
-6. Add translations for any new user-facing text.
-7. Run the quality checks; verify Windows and Linux builds when the change affects platform compatibility.
-8. Update [STATUS.md](STATUS.md) with completed work and remaining tasks.
-9. Update [AGENTS.md](../AGENTS.md) only when important project-wide agent guidance changes.
+5. Add every new ADB command to [adb-commands.md](adb-commands.md) with its purpose, possible outputs, and minimum supported Android version.
+6. Add or update automated unit tests.
+7. Add translations for any new user-facing text.
+8. Run the quality checks; verify Windows and Linux builds when the change affects platform compatibility.
+9. Update [STATUS.md](STATUS.md) with completed work and remaining tasks.
+10. Update [AGENTS.md](../AGENTS.md) only when important project-wide agent guidance changes.
 
 If a requirement is unclear or an implementation decision would establish a significant project convention, ask for clarification instead of guessing.

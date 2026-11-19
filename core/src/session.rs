@@ -83,6 +83,10 @@ impl ProcessAccumulator {
     }
 }
 
+fn has_valid_cpu(process: &ProcessUsage) -> bool {
+    process.cpu_percent.is_finite() && process.cpu_percent >= 0.0
+}
+
 /// Records per-process CPU and memory samples while a session is active.
 #[derive(Debug, Default)]
 pub struct ResourceSession {
@@ -115,7 +119,8 @@ impl ResourceSession {
     /// first [`MAX_TRACKED_PROCESSES`] entries are tracked so the per-tick cost
     /// stays bounded. When the tracked set is full, the process sampled least
     /// recently is replaced so the session follows the current leading
-    /// processes.
+    /// processes. Existing processes are updated before new ones are inserted,
+    /// so a shifted leading set never discards accumulated samples.
     pub fn record(&mut self, processes: &[ProcessUsage]) {
         if !self.is_active() {
             return;
@@ -124,8 +129,12 @@ impl ResourceSession {
         self.tick = self.tick.saturating_add(1);
         self.updates = self.updates.saturating_add(1);
 
-        for process in processes.iter().take(MAX_TRACKED_PROCESSES) {
-            if !process.cpu_percent.is_finite() || process.cpu_percent < 0.0 {
+        let leading = &processes[..processes.len().min(MAX_TRACKED_PROCESSES)];
+
+        // Update tracked processes first. Inserting a new process must not
+        // evict one that still appears later in the same snapshot.
+        for process in leading {
+            if !has_valid_cpu(process) {
                 continue;
             }
 
@@ -135,18 +144,35 @@ impl ResourceSession {
                 .find(|entry| entry.pid == process.pid)
             {
                 entry.record(process, self.tick);
+            }
+        }
+
+        // Insert processes that are not tracked yet.
+        for process in leading {
+            if !has_valid_cpu(process)
+                || self.processes.iter().any(|entry| entry.pid == process.pid)
+            {
                 continue;
             }
 
-            if self.processes.len() >= MAX_TRACKED_PROCESSES
-                && let Some(index) = self
+            if self.processes.len() >= MAX_TRACKED_PROCESSES {
+                let candidate = self
                     .processes
                     .iter()
                     .enumerate()
+                    .filter(|(_, entry)| !leading.iter().any(|process| process.pid == entry.pid))
                     .min_by_key(|(_, entry)| entry.last_seen)
-                    .map(|(index, _)| index)
-            {
-                self.processes.swap_remove(index);
+                    .or_else(|| {
+                        self.processes
+                            .iter()
+                            .enumerate()
+                            .min_by_key(|(_, entry)| entry.last_seen)
+                    })
+                    .map(|(index, _)| index);
+
+                if let Some(index) = candidate {
+                    self.processes.swap_remove(index);
+                }
             }
 
             let mut entry = ProcessAccumulator::from_process(process, self.tick);
@@ -313,6 +339,39 @@ mod tests {
         pids.sort_unstable();
 
         assert_eq!(pids, (2..12).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn shifting_the_leading_set_keeps_existing_samples() {
+        let mut session = active_session();
+
+        let first: Vec<ProcessUsage> = (0..10).map(|pid| process(pid, 10.0, 100)).collect();
+        session.record(&first);
+
+        // A new process enters first, so the evicted process still appears
+        // later in the same snapshot. Its history must survive the shift.
+        let second: Vec<ProcessUsage> = std::iter::once(10u32)
+            .chain(0u32..9u32)
+            .map(|pid| process(pid, 20.0, 200))
+            .collect();
+        session.record(&second);
+
+        let summary = session.finish().expect("active session");
+
+        for entry in summary.processes.iter().filter(|entry| entry.pid < 10) {
+            assert_eq!(entry.average_cpu_percent, 15.0);
+            assert_eq!(entry.average_memory_bytes, 150);
+        }
+
+        assert!(!summary.processes.iter().any(|entry| entry.pid == 9));
+
+        let newest = summary
+            .processes
+            .iter()
+            .find(|entry| entry.pid == 10)
+            .expect("new process");
+        assert_eq!(newest.average_cpu_percent, 20.0);
+        assert_eq!(newest.average_memory_bytes, 200);
     }
 
     #[test]

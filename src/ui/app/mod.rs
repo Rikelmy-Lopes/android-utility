@@ -1,28 +1,30 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use eframe::egui;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use android_utility_core::{
-    DozeWhitelistEntry, DozeWhitelistSource, InstalledApp, PackageName, ProcessSort, ProcessUsage,
-    ResourceSession, SessionSummary, sort_apps, sort_processes,
+    BackgroundExecution, DozeWhitelistSource, InstalledApp, PackageName, ProcessSort, ProcessUsage,
+    ResourceSession, SessionSummary, sort_processes,
 };
 
-use super::apps_panel::{self, AppsAction, AppsFilter, AppsPanel};
+use super::apps_panel::{self, AppsFilter, AppsPanel, AppsStatusFilter};
 use super::confirm::{self, ConfirmKind, ConfirmResponse, PendingConfirmation};
-use super::optimization_panel::{self, OptimizationAction, OptimizationPanel};
+use super::optimization_panel::{self, BackgroundFilter, DozeFilter, OptimizationPanel};
 use super::processes_panel::{self, ProcessLimit, ProcessRefresh, ProcessesAction, ProcessesPanel};
 use super::session_summary;
 use super::theme;
 use crate::adb::{Adb, AdbError, Device, DeviceService, DeviceState};
-use crate::commands::{self, Command, CommandEvent, LabelTarget, OperationOutcome};
 use crate::i18n::Translations;
 use crate::startup::AppPaths;
 use crate::startup::labels::LabelCache;
 use crate::startup::settings::{Settings, ThemeMode};
+
+mod actions;
+mod events;
 
 /// Top-level application state rendered by the `egui` interface.
 pub struct AndroidUtilityApp {
@@ -35,15 +37,22 @@ pub struct AndroidUtilityApp {
     label_cache: LabelCache,
     search: String,
     apps_filter: AppsFilter,
+    apps_status_filter: AppsStatusFilter,
     optimization_search: String,
     optimization_filter: AppsFilter,
+    optimization_background_filter: BackgroundFilter,
+    optimization_doze_filter: DozeFilter,
     doze_whitelist: HashMap<PackageName, DozeWhitelistSource>,
     doze_whitelist_loaded: bool,
     loading_doze_whitelist: bool,
-    receivers: Vec<Receiver<CommandEvent>>,
+    background_execution: HashMap<PackageName, BackgroundExecution>,
+    background_execution_loaded: bool,
+    loading_background_execution: bool,
+    receivers: Vec<Receiver<crate::commands::CommandEvent>>,
     busy: HashSet<PackageName>,
     loading_devices: bool,
     loading_apps: bool,
+    apps_reload_pending: bool,
     labels_pending: bool,
     confirmation: Option<PendingConfirmation>,
     load_names_confirmation: bool,
@@ -155,15 +164,22 @@ impl AndroidUtilityApp {
             label_cache,
             search: String::new(),
             apps_filter: AppsFilter::All,
+            apps_status_filter: AppsStatusFilter::All,
             optimization_search: String::new(),
             optimization_filter: AppsFilter::All,
+            optimization_background_filter: BackgroundFilter::All,
+            optimization_doze_filter: DozeFilter::All,
             doze_whitelist: HashMap::new(),
             doze_whitelist_loaded: false,
             loading_doze_whitelist: false,
+            background_execution: HashMap::new(),
+            background_execution_loaded: false,
+            loading_background_execution: false,
             receivers: Vec::new(),
             busy: HashSet::new(),
             loading_devices: false,
             loading_apps: false,
+            apps_reload_pending: false,
             labels_pending: false,
             confirmation: None,
             load_names_confirmation: false,
@@ -253,6 +269,10 @@ impl AndroidUtilityApp {
             AdbError::PermissionDenied { message } => self
                 .translations
                 .format("error.permission_denied", &[("message", message)]),
+            AdbError::UnsupportedCommand { command, message } => self.translations.format(
+                "error.unsupported_command",
+                &[("command", command), ("message", message.as_str())],
+            ),
             _ => format!("{} {}", self.translations.get("error.generic"), error),
         }
     }
@@ -275,578 +295,18 @@ impl AndroidUtilityApp {
             .unwrap_or_else(|| package.to_string())
     }
 
-    fn load_devices(&mut self) {
-        if self.loading_devices {
-            return;
-        }
-
-        self.loading_devices = true;
-        self.receivers
-            .push(commands::spawn(self.service.clone(), Command::LoadDevices));
-    }
-
-    fn load_apps(&mut self) {
-        let Some(serial) = self.selected_serial().map(str::to_owned) else {
-            self.set_error(self.translations.get("error.no_device_selected").to_owned());
-            return;
-        };
-
-        if self.loading_apps {
-            return;
-        }
-
-        self.loading_apps = true;
-        self.receivers.push(commands::spawn(
-            self.service.clone(),
-            Command::LoadApps { serial },
-        ));
-    }
-
-    fn load_processes(&mut self) {
-        if self.loading_processes {
-            return;
-        }
-
-        let Some(serial) = self.selected_serial().map(str::to_owned) else {
-            return;
-        };
-
-        self.loading_processes = true;
-        self.last_process_refresh = Some(Instant::now());
-        self.receivers.push(commands::spawn(
-            self.service.clone(),
-            Command::LoadProcesses { serial },
-        ));
-    }
-
-    fn load_doze_whitelist(&mut self) {
-        if self.loading_doze_whitelist {
-            return;
-        }
-
-        let Some(serial) = self.selected_serial().map(str::to_owned) else {
-            return;
-        };
-
-        self.loading_doze_whitelist = true;
-        self.receivers.push(commands::spawn(
-            self.service.clone(),
-            Command::LoadDozeWhitelist { serial },
-        ));
-    }
-
-    fn set_doze_whitelisted(&mut self, package: PackageName, whitelisted: bool) {
-        let Some(serial) = self.selected_serial().map(str::to_owned) else {
-            self.set_error(self.translations.get("error.no_device_selected").to_owned());
-            return;
-        };
-
-        if self.busy.contains(&package) {
-            return;
-        }
-
-        self.busy.insert(package.clone());
-        info!(
-            serial = %serial,
-            package = %package,
-            whitelisted,
-            "updating doze whitelist"
-        );
-        self.set_info(self.translations.format(
-            "status.doze_change_started",
-            &[("package", package.as_str())],
-        ));
-
-        self.receivers.push(commands::spawn(
-            self.service.clone(),
-            Command::SetDozeWhitelist {
-                serial,
-                package,
-                whitelisted,
-            },
-        ));
-    }
-
-    fn clear_doze_whitelist(&mut self) {
-        self.doze_whitelist.clear();
-        self.doze_whitelist_loaded = false;
-        self.loading_doze_whitelist = false;
-    }
-
-    fn start_usage_session(&mut self) {
-        self.usage_session.start();
-        self.usage_summary = None;
-        info!("resource usage session started");
-        self.set_info(self.translations.get("status.recording_started").to_owned());
-    }
-
-    fn stop_usage_session(&mut self) {
-        if let Some(summary) = self.usage_session.finish() {
-            info!(
-                updates = summary.updates,
-                elapsed_ms = summary.elapsed.as_millis(),
-                "resource usage session stopped"
-            );
-            self.usage_summary = Some(summary);
-            self.set_info(self.translations.get("status.recording_stopped").to_owned());
-        }
-    }
-
-    fn cancel_usage_session(&mut self) {
-        if self.usage_session.is_active() {
-            debug!("resource usage session cancelled");
-            self.usage_session.cancel();
-        }
-
-        self.usage_summary = None;
-    }
-
-    fn load_missing_labels(&mut self) {
-        if self.labels_pending {
-            return;
-        }
-
-        let Some(serial) = self.selected_serial().map(str::to_owned) else {
-            return;
-        };
-
-        let targets: Vec<LabelTarget> = self
-            .apps
-            .iter()
-            .filter(|app| !self.labels.contains_key(app.package.as_str()))
-            .filter_map(|app| {
-                app.apk_path.as_ref().map(|path| LabelTarget {
-                    package: app.package.clone(),
-                    apk_path: path.clone(),
-                })
-            })
-            .collect();
-
-        if targets.is_empty() {
-            return;
-        }
-
-        self.labels_pending = true;
-        self.receivers.push(commands::spawn(
-            self.service.clone(),
-            Command::LoadLabels { serial, targets },
-        ));
-    }
-
-    fn load_label(&mut self, package: PackageName) {
-        if self.labels.contains_key(package.as_str()) {
-            return;
-        }
-
-        let Some(serial) = self.selected_serial().map(str::to_owned) else {
-            return;
-        };
-
-        let Some(target) = self
-            .apps
-            .iter()
-            .find(|app| app.package == package)
-            .and_then(|app| {
-                app.apk_path.as_ref().map(|path| LabelTarget {
-                    package: package.clone(),
-                    apk_path: path.clone(),
-                })
-            })
-        else {
-            return;
-        };
-
-        self.receivers.push(commands::spawn(
-            self.service.clone(),
-            Command::LoadLabels {
-                serial,
-                targets: vec![target],
-            },
-        ));
-    }
-
-    fn start_operation(&mut self, kind: OperationKind, package: PackageName) {
-        let Some(serial) = self.selected_serial().map(str::to_owned) else {
-            self.set_error(self.translations.get("error.no_device_selected").to_owned());
-            return;
-        };
-
-        if self.busy.contains(&package) {
-            return;
-        }
-
-        self.busy.insert(package.clone());
-        info!(
-            operation = ?kind,
-            serial = %serial,
-            package = %package,
-            "starting operation"
-        );
-        self.set_info(
-            self.translations
-                .format("status.operation_started", &[("package", package.as_str())]),
-        );
-
-        let command = match kind {
-            OperationKind::Disable => Command::Disable { serial, package },
-            OperationKind::Enable => Command::Enable { serial, package },
-            OperationKind::Uninstall => Command::Uninstall { serial, package },
-        };
-
-        self.receivers
-            .push(commands::spawn(self.service.clone(), command));
-    }
-
-    fn request_confirmation(&mut self, kind: ConfirmKind, package: PackageName) {
-        let (display_name, is_system) = match self.apps.iter().find(|app| app.package == package) {
-            Some(app) => (app.display_name().to_owned(), app.is_system),
-            None => (package.to_string(), false),
-        };
-
-        self.confirmation = Some(PendingConfirmation {
-            kind,
-            package,
-            display_name,
-            is_system,
-        });
-    }
-
-    fn handle_apps_action(&mut self, action: AppsAction) {
-        match action {
-            AppsAction::Disable(package) => {
-                self.request_confirmation(ConfirmKind::Disable, package);
-            }
-            AppsAction::Enable(package) => {
-                self.start_operation(OperationKind::Enable, package);
-            }
-            AppsAction::Uninstall(package) => {
-                self.request_confirmation(ConfirmKind::Uninstall, package);
-            }
-            AppsAction::LoadNames => {
-                self.load_names_confirmation = true;
-            }
-            AppsAction::LoadName(package) => {
-                self.load_label(package);
-            }
-        }
-    }
-
-    fn handle_optimization_action(&mut self, action: OptimizationAction) {
-        match action {
-            OptimizationAction::Refresh => self.load_doze_whitelist(),
-            OptimizationAction::SetWhitelisted {
-                package,
-                whitelisted,
-            } => self.set_doze_whitelisted(package, whitelisted),
-        }
-    }
-
-    fn poll_events(&mut self) {
-        let receivers = std::mem::take(&mut self.receivers);
-        let mut remaining = Vec::new();
-
-        for receiver in receivers {
-            let mut disconnected = false;
-
-            loop {
-                match receiver.try_recv() {
-                    Ok(event) => self.handle_event(event),
-                    Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => {
-                        disconnected = true;
-                        break;
-                    }
-                }
-            }
-
-            if !disconnected {
-                remaining.push(receiver);
-            }
-        }
-
-        self.receivers.extend(remaining);
-    }
-
-    fn handle_event(&mut self, event: CommandEvent) {
-        match event {
-            CommandEvent::Devices(result) => self.handle_devices(result),
-            CommandEvent::Apps { serial, result } => self.handle_apps(&serial, result),
-            CommandEvent::Processes { serial, result } => {
-                self.handle_processes(&serial, result);
-            }
-            CommandEvent::DozeWhitelist { serial, result } => {
-                self.handle_doze_whitelist(&serial, result);
-            }
-            CommandEvent::DozeWhitelistChanged {
-                serial,
-                package,
-                whitelisted,
-                result,
-            } => {
-                self.handle_doze_whitelist_changed(&serial, package, whitelisted, result);
-            }
-            CommandEvent::Label {
-                serial,
-                package,
-                label,
-            } => {
-                if self.selected_serial() != Some(serial.as_str()) {
-                    return;
-                }
-
-                self.labels
-                    .insert(package.as_str().to_owned(), label.clone());
-
-                if let Some(name) = &label
-                    && let Err(error) = self.label_cache.insert(package.as_str(), name)
-                {
-                    let text = self
-                        .translations
-                        .format("error.label_cache", &[("error", &error.to_string())]);
-                    self.set_error(text);
-                }
-
-                let updated = match self.apps.iter_mut().find(|app| app.package == package) {
-                    Some(app) => {
-                        app.label = label;
-                        true
-                    }
-                    None => false,
-                };
-
-                if updated {
-                    sort_apps(&mut self.apps);
-                }
-            }
-            CommandEvent::LabelsFinished { serial } => {
-                if self.selected_serial().is_none()
-                    || self.selected_serial() == Some(serial.as_str())
-                {
-                    self.labels_pending = false;
-                }
-            }
-            CommandEvent::Operation { package, outcome } => {
-                self.busy.remove(&package);
-
-                match outcome {
-                    Ok(outcome) => {
-                        let name = self.display_name_for(&package);
-                        let message = match outcome {
-                            OperationOutcome::Disabled => self
-                                .translations
-                                .format("status.disabled_ok", &[("name", &name)]),
-                            OperationOutcome::Enabled => self
-                                .translations
-                                .format("status.enabled_ok", &[("name", &name)]),
-                            OperationOutcome::Uninstalled => self
-                                .translations
-                                .format("status.uninstalled_ok", &[("name", &name)]),
-                        };
-
-                        self.set_success(message);
-                        info!(package = %package, ?outcome, "operation succeeded");
-                        self.load_apps();
-                    }
-                    Err(error) => {
-                        let text = self.error_text(&error);
-                        self.set_error(text);
-                    }
-                }
-            }
-        }
-    }
-
-    fn handle_devices(&mut self, result: Result<Vec<Device>, AdbError>) {
-        self.loading_devices = false;
-
-        match result {
-            Ok(devices) => {
-                let previous_serial = self
-                    .selected_device_index
-                    .and_then(|index| self.devices.get(index))
-                    .map(|device| device.serial.clone());
-
-                self.devices = devices;
-
-                let desired_index = previous_serial
-                    .and_then(|serial| {
-                        self.devices
-                            .iter()
-                            .position(|device| device.serial == serial && device.is_online())
-                    })
-                    .or_else(|| self.devices.iter().position(Device::is_online));
-
-                if self.selected_device_index != desired_index {
-                    self.apps.clear();
-                    self.loading_apps = false;
-                    self.labels_pending = false;
-                    self.processes.clear();
-                    self.loading_processes = false;
-                    self.last_process_refresh = None;
-                    self.clear_doze_whitelist();
-                    self.cancel_usage_session();
-                }
-
-                self.selected_device_index = desired_index;
-
-                debug!(
-                    device_count = self.devices.len(),
-                    serial = self.selected_serial().unwrap_or("none"),
-                    "device list updated"
-                );
-
-                if desired_index.is_some() {
-                    self.set_info(self.translations.get("status.devices_loaded").to_owned());
-                    self.load_apps();
-                } else {
-                    self.set_error(self.unavailable_device_text());
-                }
-            }
-            Err(error) => {
-                self.devices.clear();
-                self.selected_device_index = None;
-                self.apps.clear();
-                self.processes.clear();
-                self.loading_processes = false;
-                self.last_process_refresh = None;
-                self.clear_doze_whitelist();
-                self.cancel_usage_session();
-                self.set_error(self.error_text(&error));
-            }
-        }
-    }
-
-    fn handle_apps(&mut self, serial: &str, result: Result<Vec<InstalledApp>, AdbError>) {
-        if self.selected_serial() != Some(serial) {
-            return;
-        }
-
+    /// Clears every value that belongs to the previously selected device.
+    fn reset_device_data(&mut self) {
+        self.apps.clear();
         self.loading_apps = false;
-
-        match result {
-            Ok(mut apps) => {
-                for app in &mut apps {
-                    if let Some(Some(label)) = self.labels.get(app.package.as_str()) {
-                        app.label = Some(label.clone());
-                    }
-                }
-
-                sort_apps(&mut apps);
-                self.apps = apps;
-
-                let count = self.apps.len().to_string();
-                debug!(apps = self.apps.len(), "applications loaded");
-                self.set_info(
-                    self.translations
-                        .format("status.apps_loaded", &[("count", &count)]),
-                );
-
-                if self.selected_tab == Tab::Optimization && !self.doze_whitelist_loaded {
-                    self.load_doze_whitelist();
-                }
-            }
-            Err(error) => {
-                self.apps.clear();
-                self.set_error(self.error_text(&error));
-            }
-        }
-    }
-
-    fn handle_processes(&mut self, serial: &str, result: Result<Vec<ProcessUsage>, AdbError>) {
-        if self.selected_serial() != Some(serial) {
-            return;
-        }
-
+        self.apps_reload_pending = false;
+        self.labels_pending = false;
+        self.processes.clear();
         self.loading_processes = false;
-
-        match result {
-            Ok(mut processes) => {
-                sort_processes(&mut processes, self.process_sort);
-
-                if self.usage_session.is_active() {
-                    self.usage_session.record(&processes);
-                }
-
-                debug!(processes = processes.len(), "process table loaded");
-                self.processes = processes;
-            }
-            Err(error) => {
-                self.set_error(self.error_text(&error));
-            }
-        }
-    }
-
-    fn handle_doze_whitelist(
-        &mut self,
-        serial: &str,
-        result: Result<Vec<DozeWhitelistEntry>, AdbError>,
-    ) {
-        if self.selected_serial() != Some(serial) {
-            return;
-        }
-
-        self.loading_doze_whitelist = false;
-
-        match result {
-            Ok(entries) => {
-                self.doze_whitelist = entries
-                    .into_iter()
-                    .map(|entry| (entry.package, entry.source))
-                    .collect();
-                self.doze_whitelist_loaded = true;
-
-                let count = self.doze_whitelist.len().to_string();
-                debug!(
-                    whitelisted = self.doze_whitelist.len(),
-                    "doze whitelist loaded"
-                );
-                self.set_info(
-                    self.translations
-                        .format("status.doze_loaded", &[("count", &count)]),
-                );
-            }
-            Err(error) => {
-                self.doze_whitelist.clear();
-                self.doze_whitelist_loaded = false;
-                self.set_error(self.error_text(&error));
-            }
-        }
-    }
-
-    fn handle_doze_whitelist_changed(
-        &mut self,
-        serial: &str,
-        package: PackageName,
-        whitelisted: bool,
-        result: Result<(), AdbError>,
-    ) {
-        if self.selected_serial() != Some(serial) {
-            return;
-        }
-
-        self.busy.remove(&package);
-
-        match result {
-            Ok(()) => {
-                if whitelisted {
-                    self.doze_whitelist
-                        .insert(package.clone(), DozeWhitelistSource::User);
-                } else {
-                    self.doze_whitelist.remove(&package);
-                }
-
-                let name = self.display_name_for(&package);
-                let message_key = if whitelisted {
-                    "status.doze_whitelisted_ok"
-                } else {
-                    "status.doze_unwhitelisted_ok"
-                };
-                self.set_success(self.translations.format(message_key, &[("name", &name)]));
-            }
-            Err(error) => {
-                self.set_error(self.error_text(&error));
-            }
-        }
+        self.last_process_refresh = None;
+        self.clear_doze_whitelist();
+        self.clear_background_execution();
+        self.cancel_usage_session();
     }
 
     fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
@@ -889,14 +349,7 @@ impl AndroidUtilityApp {
                             );
 
                             self.selected_device_index = selection;
-                            self.apps.clear();
-                            self.loading_apps = false;
-                            self.labels_pending = false;
-                            self.processes.clear();
-                            self.loading_processes = false;
-                            self.last_process_refresh = None;
-                            self.clear_doze_whitelist();
-                            self.cancel_usage_session();
+                            self.reset_device_data();
                             self.load_apps();
                         }
                     }
@@ -977,28 +430,41 @@ impl AndroidUtilityApp {
     }
 
     fn draw_status_bar(&mut self, ui: &mut egui::Ui) {
+        let show_apps_total = matches!(self.selected_tab, Tab::Apps | Tab::Optimization);
+        let total_text = self
+            .translations
+            .format("apps.count", &[("count", &self.apps.len().to_string())]);
+
         egui::Panel::bottom("status")
             .show_separator_line(true)
             .show(ui, |ui| {
                 ui.add_space(theme::size::SPACING_XS);
 
-                match self.status.kind {
-                    StatusKind::Info => {
-                        ui.label(&self.status.text);
+                ui.horizontal(|ui| {
+                    match self.status.kind {
+                        StatusKind::Info => {
+                            ui.label(&self.status.text);
+                        }
+                        StatusKind::Success => {
+                            ui.colored_label(
+                                theme::palette(ui).success_text,
+                                egui::RichText::new(&self.status.text),
+                            );
+                        }
+                        StatusKind::Error => {
+                            ui.colored_label(
+                                ui.visuals().error_fg_color,
+                                egui::RichText::new(&self.status.text),
+                            );
+                        }
                     }
-                    StatusKind::Success => {
-                        ui.colored_label(
-                            theme::palette(ui).success_text,
-                            egui::RichText::new(&self.status.text),
-                        );
+
+                    if show_apps_total {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(&total_text).weak());
+                        });
                     }
-                    StatusKind::Error => {
-                        ui.colored_label(
-                            ui.visuals().error_fg_color,
-                            egui::RichText::new(&self.status.text),
-                        );
-                    }
-                }
+                });
 
                 ui.add_space(theme::size::SPACING_XS);
             });
@@ -1097,6 +563,7 @@ impl eframe::App for AndroidUtilityApp {
                         AppsPanel {
                             apps: &self.apps,
                             filter: &mut self.apps_filter,
+                            status_filter: &mut self.apps_status_filter,
                             search: &mut self.search,
                             busy: &self.busy,
                             loading: self.loading_apps,
@@ -1127,12 +594,17 @@ impl eframe::App for AndroidUtilityApp {
                         OptimizationPanel {
                             apps: &self.apps,
                             whitelist: &self.doze_whitelist,
+                            background: &self.background_execution,
                             filter: &mut self.optimization_filter,
+                            background_filter: &mut self.optimization_background_filter,
+                            doze_filter: &mut self.optimization_doze_filter,
                             search: &mut self.optimization_search,
                             busy: &self.busy,
                             loading_apps: self.loading_apps,
                             loading_whitelist: self.loading_doze_whitelist,
+                            loading_background: self.loading_background_execution,
                             whitelist_loaded: self.doze_whitelist_loaded,
+                            background_loaded: self.background_execution_loaded,
                             translations,
                         },
                     );
@@ -1144,6 +616,7 @@ impl eframe::App for AndroidUtilityApp {
 
         if previous_tab != Tab::Optimization && selected_tab == Tab::Optimization {
             self.load_doze_whitelist();
+            self.load_background_execution();
         }
 
         if selected_tab != Tab::Device {
