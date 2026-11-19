@@ -199,6 +199,7 @@ Possible variations:
 - Summary lines appear before the table.
 - A device can print a table without a recognized header.
 - A vendor build can reject the `-o` or `-s` flags.
+- Example unsupported output: `top: invalid option -- o`.
 
 The parser locates the header, maps the PID, CPU, resident memory, CPU time, and
 command columns, and ignores malformed rows. If no process rows are parsed, the
@@ -230,9 +231,11 @@ Possible variations:
 - The source can be `system`, `system-excidle`, `system-ui`, `user`, or an
   unrecognized value.
 - Empty output is valid and means no entries were returned.
+- Example unsupported output: `Can't find service: deviceidle`. This is reported
+  as an unsupported command instead of an empty whitelist.
 
 The parser validates package names, maps known sources, and ignores malformed
-lines.
+lines. Unsupported command or service responses are rejected before parsing.
 
 Minimum Android version: Android 7.0 (API 24) for the
 `dumpsys deviceidle whitelist` command.
@@ -298,8 +301,10 @@ Possible outputs:
 - `No operations.`
 - Vendor diagnostics on stderr.
 - `Error: ...` or `java.lang.SecurityException: ...` on stdout.
+- Example unsupported output: `/system/bin/sh: cmd: not found`.
 
-The parser keeps only valid package names, so diagnostic lines are ignored. The
+The parser keeps only valid package names, so diagnostic lines are ignored.
+Unsupported command responses are rejected before parsing. The
 command is successful only when it exits with code 0, stderr contains neither
 `error` nor `exception`, and stdout does not start with `error`, `exception`, or
 `java.lang.`.

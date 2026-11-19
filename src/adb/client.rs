@@ -13,7 +13,7 @@ use android_utility_core::{
 use super::parse::{
     merge_package_paths, parse_devices, parse_doze_whitelist, parse_ignored_background_packages,
     parse_package_entries, parse_package_names, parse_top_processes, permission_denied, pm_failure,
-    uninstall_succeeded,
+    uninstall_succeeded, unsupported_command,
 };
 use super::process::ProcessOutput;
 use super::{AdbError, Device, DeviceService};
@@ -165,6 +165,10 @@ impl DeviceService for Adb {
             ],
         )?;
 
+        if let Some(message) = unsupported_command(&output) {
+            return Err(AdbError::unsupported_command("top", message));
+        }
+
         if !output.succeeded() {
             return Err(AdbError::command_failed(output.diagnostics()));
         }
@@ -182,6 +186,13 @@ impl DeviceService for Adb {
 
     fn doze_whitelist(&self, serial: &str) -> Result<Vec<DozeWhitelistEntry>, AdbError> {
         let output = self.shell(serial, &["dumpsys", "deviceidle", "whitelist"])?;
+
+        if let Some(message) = unsupported_command(&output) {
+            return Err(AdbError::unsupported_command(
+                "dumpsys deviceidle whitelist",
+                message,
+            ));
+        }
 
         if !output.succeeded() {
             return Err(AdbError::command_failed(output.diagnostics()));
@@ -205,11 +216,7 @@ impl DeviceService for Adb {
             &["dumpsys", "deviceidle", "whitelist", argument.as_str()],
         )?;
 
-        if doze_whitelist_command_succeeded(&output) {
-            Ok(())
-        } else {
-            Err(AdbError::command_failed(output.diagnostics()))
-        }
+        doze_whitelist_command_result(&output)
     }
 
     fn ignored_background_packages(&self, serial: &str) -> Result<HashSet<PackageName>, AdbError> {
@@ -224,11 +231,8 @@ impl DeviceService for Adb {
             ],
         )?;
 
-        if appops_command_succeeded(&output) {
-            Ok(parse_ignored_background_packages(&output.stdout))
-        } else {
-            Err(AdbError::command_failed(output.diagnostics()))
-        }
+        appops_command_result(&output, "cmd appops query-op")
+            .map(|()| parse_ignored_background_packages(&output.stdout))
     }
 
     fn set_background_execution(
@@ -255,11 +259,7 @@ impl DeviceService for Adb {
             ],
         )?;
 
-        if appops_command_succeeded(&output) {
-            Ok(())
-        } else {
-            Err(AdbError::command_failed(output.diagnostics()))
-        }
+        appops_command_result(&output, "cmd appops set")
     }
 
     fn application_label(&self, serial: &str, apk_path: &str) -> Result<Option<String>, AdbError> {
@@ -333,12 +333,39 @@ impl DeviceService for Adb {
     }
 }
 
+fn doze_whitelist_command_result(output: &ProcessOutput) -> Result<(), AdbError> {
+    if let Some(message) = unsupported_command(output) {
+        return Err(AdbError::unsupported_command(
+            "dumpsys deviceidle whitelist",
+            message,
+        ));
+    }
+
+    if doze_whitelist_command_succeeded(output) {
+        Ok(())
+    } else {
+        Err(AdbError::command_failed(output.diagnostics()))
+    }
+}
+
 fn doze_whitelist_command_succeeded(output: &ProcessOutput) -> bool {
     output.succeeded()
         && !output
             .stdout
             .to_ascii_lowercase()
             .contains("unknown package")
+}
+
+fn appops_command_result(output: &ProcessOutput, command: &'static str) -> Result<(), AdbError> {
+    if let Some(message) = unsupported_command(output) {
+        return Err(AdbError::unsupported_command(command, message));
+    }
+
+    if appops_command_succeeded(output) {
+        Ok(())
+    } else {
+        Err(AdbError::command_failed(output.diagnostics()))
+    }
 }
 
 fn appops_command_succeeded(output: &ProcessOutput) -> bool {
@@ -414,5 +441,30 @@ mod tests {
             0
         )));
         assert!(!doze_whitelist_command_succeeded(&output("", 1)));
+    }
+
+    #[test]
+    fn missing_doze_service_is_reported_as_unsupported() {
+        let missing = output("Can't find service: deviceidle", 0);
+
+        assert!(matches!(
+            doze_whitelist_command_result(&missing),
+            Err(AdbError::UnsupportedCommand { .. })
+        ));
+    }
+
+    #[test]
+    fn missing_cmd_binary_is_reported_as_unsupported() {
+        let missing = ProcessOutput {
+            code: Some(127),
+            stdout: String::new(),
+            stderr: "/system/bin/sh: cmd: not found".to_owned(),
+            timed_out: false,
+        };
+
+        assert!(matches!(
+            appops_command_result(&missing, "cmd appops query-op"),
+            Err(AdbError::UnsupportedCommand { .. })
+        ));
     }
 }

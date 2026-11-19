@@ -261,6 +261,10 @@ impl AndroidUtilityApp {
             AdbError::PermissionDenied { message } => self
                 .translations
                 .format("error.permission_denied", &[("message", message)]),
+            AdbError::UnsupportedCommand { command, message } => self.translations.format(
+                "error.unsupported_command",
+                &[("command", command), ("message", message.as_str())],
+            ),
             _ => format!("{} {}", self.translations.get("error.generic"), error),
         }
     }

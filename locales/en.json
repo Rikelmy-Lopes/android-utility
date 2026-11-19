@@ -114,6 +114,7 @@
   "error.adb_not_found": "ADB was not found. Install Android platform tools and add them to PATH.",
   "error.no_device_selected": "No usable device selected.",
   "error.permission_denied": "The device denied this action. Recent Android versions block disabling or removing system applications through ADB. Details: {message}",
+  "error.unsupported_command": "This Android version does not support {command}. Details: {message}",
   "error.cache_directory": "Could not create the application cache directory: {error}",
   "error.label_cache": "Could not save the application-name cache: {error}",
   "confirm.disable_title": "Disable application",
